@@ -101,8 +101,8 @@ class InsightKompetitor(BaseModel):
     persentase_positif: float
     persentase_negatif: float
     persentase_netral: float
-    tema_pujian: List[str] = Field(default_factory=list, description="Tema yang paling sering dipuji")
-    tema_keluhan: List[str] = Field(default_factory=list, description="Tema yang paling sering dikeluhkan")
+    tema_pujian: List[TemaUlasan] = Field(default_factory=list, description="Tema yang paling sering dipuji")
+    tema_keluhan: List[TemaUlasan] = Field(default_factory=list, description="Tema yang paling sering dikeluhkan")
     kekuatan: List[str] = Field(default_factory=list)
     kelemahan: List[str] = Field(default_factory=list)
     ulasan_terklasifikasi: List[UlasanTerklasifikasi] = Field(default_factory=list)
@@ -118,6 +118,40 @@ class InsightOutput(BaseModel):
         description="Agregasi jumlah kemunculan tiap tema pujian/keluhan lintas kompetitor",
     )
     total_ulasan_dianalisis: int
+
+
+class InsightKompetitorLLM(BaseModel):
+    """Subset InsightKompetitor yang diminta ke LLM — tanpa `ulasan_terklasifikasi`
+    (echo tiap ulasan individual) supaya respons LLM ringkas & tidak gampang
+    terpotong oleh batas token."""
+    nama: str
+    rating: float
+    jumlah_review: int
+    rentang_harga: str
+    jumlah_ulasan_dianalisis: int
+    persentase_positif: float
+    persentase_negatif: float
+    persentase_netral: float
+    tema_pujian: List[TemaUlasan] = Field(default_factory=list, description="Tema yang paling sering dipuji")
+    tema_keluhan: List[TemaUlasan] = Field(default_factory=list, description="Tema yang paling sering dikeluhkan")
+    kekuatan: List[str] = Field(default_factory=list)
+    kelemahan: List[str] = Field(default_factory=list)
+
+
+class InsightOutputLLM(BaseModel):
+    """Subset InsightOutput yang diminta ke LLM pada mode real.
+
+    `ringkasan_tema_pasar` (dict generik) & `total_ulasan_dianalisis` sengaja tidak
+    diminta ke LLM karena field dict tanpa properti tetap tidak didukung oleh mode
+    structured output ketat (strict JSON schema) OpenAI/OpenRouter. Dua field itu
+    dihitung ulang secara deterministik di backend dari `insight_kompetitor`
+    (lihat `_agregasi_tema_pasar` di sentiment_insight.py). `ulasan_terklasifikasi`
+    per kompetitor juga tidak diminta (lihat InsightKompetitorLLM) — tidak dipakai
+    di frontend dan boros token kalau LLM harus meng-echo tiap ulasan.
+    """
+    lokasi: str
+    kategori: str
+    insight_kompetitor: List[InsightKompetitorLLM]
 
 
 # ---------------------------------------------------------------------------

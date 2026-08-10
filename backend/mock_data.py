@@ -56,13 +56,28 @@ def _titik_pusat(lokasi: str, rng: random.Random) -> Tuple[float, float]:
     )
 
 
-def _titik_sekitar(pusat_lat: float, pusat_lng: float, radius_km: float, rng: random.Random) -> Tuple[float, float]:
-    """Sebar titik acak di dalam lingkaran radius_km dari titik pusat (proyeksi datar sederhana)."""
+ARAH_MATA_ANGIN = ["utara", "timur laut", "timur", "tenggara", "selatan", "barat daya", "barat", "barat laut"]
+
+
+def _arah_dari_sudut(sudut_rad: float) -> str:
+    derajat = math.degrees(sudut_rad) % 360
+    return ARAH_MATA_ANGIN[int((derajat + 22.5) // 45) % 8]
+
+
+def _titik_sekitar(
+    pusat_lat: float, pusat_lng: float, radius_km: float, rng: random.Random
+) -> Tuple[float, float, float, str]:
+    """Sebar titik acak di dalam lingkaran radius_km dari titik pusat (proyeksi datar sederhana).
+
+    Mengembalikan (lat, lng, jarak_km, arah_mata_angin) — jarak & arah dipakai lagi untuk
+    menyusun teks alamat supaya KONSISTEN dengan posisi titik di peta (bukan dua hal acak
+    yang independen, yang sebelumnya bikin alamat teks tidak nyambung dengan pin di peta).
+    """
     sudut = rng.uniform(0, 2 * math.pi)
     jarak_km = rng.uniform(0.15, radius_km)
     dlat = (jarak_km * math.cos(sudut)) / 111.0
     dlng = (jarak_km * math.sin(sudut)) / (111.0 * math.cos(math.radians(pusat_lat)) or 1)
-    return (pusat_lat + dlat, pusat_lng + dlng)
+    return (pusat_lat + dlat, pusat_lng + dlng, jarak_km, _arah_dari_sudut(sudut))
 
 # ---------------------------------------------------------------------------
 # Nama usaha per kategori (dipakai untuk generate nama kompetitor)
@@ -211,10 +226,13 @@ def generate_mock_kompetitor(
     for i, nama in enumerate(nama_terpilih[:top_n]):
         rating = round(rng.uniform(3.4, 4.9), 1)
         jumlah_review = rng.randint(35, 890)
-        jalan = rng.choice(ALAMAT_JALAN)
-        alamat = f"{jalan} No. {rng.randint(1, 150)}, {lokasi.strip().title()}"
         harga = rng.choice(harga_pool)
-        lat, lng = _titik_sekitar(pusat_lat, pusat_lng, radius_km, rng)
+        lat, lng, jarak_km, arah = _titik_sekitar(pusat_lat, pusat_lng, radius_km, rng)
+        jalan = rng.choice(ALAMAT_JALAN)
+        # Alamat dibangun dari jarak & arah yang SAMA dipakai untuk koordinat peta,
+        # supaya teksnya konsisten dengan posisi pin (bukan nama jalan acak yang tidak
+        # berkaitan dengan lat/lng, yang sebelumnya bisa 'meleset' dari peta sungguhan).
+        alamat = f"Sekitar {jalan}, ±{jarak_km:.1f} km {arah} dari pusat {lokasi.strip().title()}"
 
         jumlah_ulasan = rng.randint(4, 5)
         sample_ulasan = rng.sample(ulasan_pool, k=min(jumlah_ulasan, len(ulasan_pool)))

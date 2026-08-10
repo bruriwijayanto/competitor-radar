@@ -184,7 +184,7 @@ class StrategyAgent:
         try:
             llm_agent = Agent(
                 name=self.name,
-                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY),
+                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY, max_tokens=2048),
                 instructions=self.agent.instructions,
                 output_schema=StrategyOutput,
             )

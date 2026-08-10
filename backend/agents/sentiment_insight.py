@@ -7,7 +7,7 @@ mengklasifikasi sentimen tiap ulasan, mengekstraksi tema pujian & keluhan
 kekuatan & kelemahan tiap kompetitor.
 
 - Mode mock: heuristik rating + keyword matching Bahasa Indonesia (tanpa LLM).
-- Mode real: Agno Agent + LLM lewat OpenRouter dengan output_schema=InsightOutput.
+- Mode real: Agno Agent + LLM lewat OpenRouter dengan output_schema=InsightOutputLLM.
 
 Output agent ini (InsightOutput) adalah kontrak A2A yang dikonsumsi Agent 3 (Strategy).
 """
@@ -21,11 +21,30 @@ from ..config import settings
 from ..schemas import (
     DataCollectorOutput,
     InsightKompetitor,
+    InsightKompetitorLLM,
     InsightOutput,
+    InsightOutputLLM,
     SentimenLabel,
     TemaUlasan,
     UlasanTerklasifikasi,
 )
+
+
+def _agregasi_tema_pasar(insight_kompetitor: List[InsightKompetitor]) -> dict:
+    """Hitung ulang agregasi tema pujian/keluhan lintas kompetitor dari hasil LLM.
+
+    Dilakukan di backend (bukan diminta ke LLM) karena field dict generik tidak
+    kompatibel dengan structured output ketat OpenAI/OpenRouter — lihat
+    schemas.InsightOutputLLM.
+    """
+    pujian: Counter = Counter()
+    keluhan: Counter = Counter()
+    for k in insight_kompetitor:
+        for t in k.tema_pujian:
+            pujian[t.value] += 1
+        for t in k.tema_keluhan:
+            keluhan[t.value] += 1
+    return {"pujian": dict(pujian.most_common()), "keluhan": dict(keluhan.most_common())}
 
 TEMA_KEYWORDS: Dict[TemaUlasan, List[str]] = {
     TemaUlasan.harga: ["harga", "mahal", "murah", "terjangkau", "biaya", "rp"],
@@ -168,21 +187,42 @@ class SentimentInsightAgent:
         try:
             llm_agent = Agent(
                 name=self.name,
-                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY),
+                model=OpenRouter(
+                    id=settings.OPENROUTER_MODEL,
+                    api_key=settings.OPENROUTER_API_KEY,
+                    max_tokens=4096,  # default Agno (1024) gampang membuat JSON kepotong untuk banyak kompetitor
+                ),
                 instructions=self.agent.instructions,
-                output_schema=InsightOutput,
+                output_schema=InsightOutputLLM,
             )
             prompt = (
                 "Analisis sentimen & insight untuk data kompetitor berikut (format JSON DataCollectorOutput). "
-                "Kembalikan hasil sesuai schema InsightOutput, semua teks dalam Bahasa Indonesia.\n\n"
+                "Kembalikan hasil sesuai schema InsightOutputLLM, semua teks dalam Bahasa Indonesia.\n\n"
                 f"{data.model_dump_json()}"
             )
             result = llm_agent.run(prompt)
             content = result.content
-            if isinstance(content, InsightOutput):
-                return content
             if isinstance(content, str):
-                return InsightOutput.model_validate(json.loads(content))
-            return InsightOutput.model_validate(content)
+                parsial = InsightOutputLLM.model_validate(json.loads(content))
+            elif isinstance(content, InsightOutputLLM):
+                parsial = content
+            else:
+                parsial = InsightOutputLLM.model_validate(content)
+
+            # Lengkapi kembali jadi InsightKompetitor penuh (ulasan_terklasifikasi
+            # sengaja kosong karena tidak diminta ke LLM — lihat InsightKompetitorLLM).
+            insight_kompetitor = [
+                InsightKompetitor(**k.model_dump(), ulasan_terklasifikasi=[]) for k in parsial.insight_kompetitor
+            ]
+
+            # ringkasan_tema_pasar & total_ulasan_dianalisis dihitung di backend, bukan
+            # diminta ke LLM (lihat catatan di schemas.InsightOutputLLM).
+            return InsightOutput(
+                lokasi=parsial.lokasi,
+                kategori=parsial.kategori,
+                insight_kompetitor=insight_kompetitor,
+                ringkasan_tema_pasar=_agregasi_tema_pasar(insight_kompetitor),
+                total_ulasan_dianalisis=sum(k.jumlah_ulasan_dianalisis for k in insight_kompetitor),
+            )
         except Exception:
             return None
