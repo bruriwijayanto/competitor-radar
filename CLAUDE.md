@@ -35,7 +35,7 @@ Dokumen ini memberi konteks arsitektur & konvensi proyek untuk siapa pun (manusi
 Aplikasi punya dua mode, dipilih lewat env var `APP_MODE` (default: `mock`):
 
 - **`mock` (default, tanpa API key apa pun)**: Data Collector mengembalikan data kompetitor & ulasan sintetis tapi realistis (deterministik per request berdasarkan input lokasi/kategori). Sentiment & Strategy agent memakai logika rule-based/heuristik (keyword matching Bahasa Indonesia) — bukan LLM — sehingga seluruh pipeline berjalan tanpa key apa pun.
-- **`real`**: Data Collector memanggil Google Maps Places API (butuh `GOOGLE_MAPS_API_KEY`). Sentiment & Strategy agent memakai Agno `Agent` yang dibungkus LLM (`OpenAIChat`, butuh `OPENAI_API_KEY`) dengan `output_schema` Pydantic supaya hasilnya terstruktur. Jika mode `real` diminta tapi key tidak lengkap, backend otomatis fallback ke heuristik mock untuk bagian yang key-nya tidak tersedia (agar demo tidak pernah gagal total) dan mencatat warning di log SSE.
+- **`real`**: Data Collector memanggil Google Maps Places API (butuh `GOOGLE_MAPS_API_KEY`). Sentiment & Strategy agent memakai Agno `Agent` yang dibungkus LLM lewat **OpenRouter** (`agno.models.openrouter.OpenRouter`, butuh `OPENROUTER_API_KEY`) dengan `output_schema` Pydantic supaya hasilnya terstruktur. Jika mode `real` diminta tapi key tidak lengkap, backend otomatis fallback ke heuristik mock untuk bagian yang key-nya tidak tersedia (agar demo tidak pernah gagal total) dan mencatat warning di log SSE.
 
 Tidak ada API key yang di-hardcode di mana pun. Semua dibaca dari environment variable (lihat `.env.example`).
 

@@ -53,6 +53,7 @@ class KompetitorRaw(BaseModel):
     ulasan: List[UlasanMentah] = Field(default_factory=list)
     lat: Optional[float] = Field(None, description="Koordinat lintang (sintetis pada mode mock)")
     lng: Optional[float] = Field(None, description="Koordinat bujur (sintetis pada mode mock)")
+    place_id: Optional[str] = Field(None, description="Google Place ID (hanya terisi pada mode real)")
 
 
 class DataCollectorOutput(BaseModel):

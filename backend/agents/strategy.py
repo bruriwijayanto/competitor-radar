@@ -6,7 +6,7 @@ menghasilkan gap analysis (celah pasar yang belum dilayani baik) dan rekomendasi
 strategis actionable (positioning, quick win, diferensiator).
 
 - Mode mock: heuristik berbasis agregasi tema pujian/keluhan lintas kompetitor.
-- Mode real: Agno Agent + LLM (OpenAIChat) dengan output_schema=StrategyOutput.
+- Mode real: Agno Agent + LLM lewat OpenRouter dengan output_schema=StrategyOutput.
 
 Output agent ini (StrategyOutput) adalah bagian akhir laporan yang dikirim ke frontend.
 """
@@ -67,7 +67,7 @@ class StrategyAgent:
         )
 
     def run(self, insight: InsightOutput, nama_usaha: str | None = None) -> StrategyOutput:
-        if settings.is_real_mode_requested and settings.has_openai_key:
+        if settings.is_real_mode_requested and settings.has_openrouter_key:
             hasil = self._run_real(insight, nama_usaha)
             if hasil is not None:
                 return hasil
@@ -179,12 +179,12 @@ class StrategyAgent:
     # ------------------------------------------------------------------
 
     def _run_real(self, insight: InsightOutput, nama_usaha: str | None):
-        from agno.models.openai import OpenAIChat
+        from agno.models.openrouter import OpenRouter
 
         try:
             llm_agent = Agent(
                 name=self.name,
-                model=OpenAIChat(id=settings.OPENAI_MODEL, api_key=settings.OPENAI_API_KEY),
+                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY),
                 instructions=self.agent.instructions,
                 output_schema=StrategyOutput,
             )

@@ -130,6 +130,7 @@ class DataCollectorAgent:
                             ulasan=ulasan,
                             lat=detail_loc.get("lat"),
                             lng=detail_loc.get("lng"),
+                            place_id=place.get("place_id"),
                         )
                     )
 

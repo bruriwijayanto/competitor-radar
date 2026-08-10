@@ -7,7 +7,7 @@ mengklasifikasi sentimen tiap ulasan, mengekstraksi tema pujian & keluhan
 kekuatan & kelemahan tiap kompetitor.
 
 - Mode mock: heuristik rating + keyword matching Bahasa Indonesia (tanpa LLM).
-- Mode real: Agno Agent + LLM (OpenAIChat) dengan output_schema=InsightOutput.
+- Mode real: Agno Agent + LLM lewat OpenRouter dengan output_schema=InsightOutput.
 
 Output agent ini (InsightOutput) adalah kontrak A2A yang dikonsumsi Agent 3 (Strategy).
 """
@@ -60,7 +60,7 @@ class SentimentInsightAgent:
         )
 
     def run(self, data: DataCollectorOutput) -> InsightOutput:
-        if settings.is_real_mode_requested and settings.has_openai_key:
+        if settings.is_real_mode_requested and settings.has_openrouter_key:
             hasil = self._run_real(data)
             if hasil is not None:
                 return hasil
@@ -163,12 +163,12 @@ class SentimentInsightAgent:
     # ------------------------------------------------------------------
 
     def _run_real(self, data: DataCollectorOutput):
-        from agno.models.openai import OpenAIChat
+        from agno.models.openrouter import OpenRouter
 
         try:
             llm_agent = Agent(
                 name=self.name,
-                model=OpenAIChat(id=settings.OPENAI_MODEL, api_key=settings.OPENAI_API_KEY),
+                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY),
                 instructions=self.agent.instructions,
                 output_schema=InsightOutput,
             )

@@ -272,7 +272,10 @@ $(function () {
 
       const $row = $(`
         <tr>
-          <td class="cell-name">${k.nama}<br><span style="font-weight:400;color:var(--text-faint);font-size:11.5px">${k.alamat}</span></td>
+          <td class="cell-name">
+            <a class="competitor-link" href="${googleMapsUrl(k)}" target="_blank" rel="noopener noreferrer">${k.nama} <i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+            <br><span style="font-weight:400;color:var(--text-faint);font-size:11.5px">${k.alamat}</span>
+          </td>
           <td><span class="rating-pill"><i class="fa-solid fa-star"></i> ${k.rating.toFixed(1)}</span></td>
           <td>${k.jumlah_review.toLocaleString("id-ID")}</td>
           <td>${k.rentang_harga}</td>
@@ -285,6 +288,16 @@ $(function () {
   }
 
   // ---------------------------------------------------------------- peta sebaran kompetitor
+
+  // Tautan ke halaman Google Maps (termasuk ulasannya) untuk satu kompetitor.
+  // Kalau place_id tersedia (mode real), tautannya presisi langsung ke tempatnya;
+  // kalau tidak (mode mock, tanpa place_id sungguhan), fallback ke pencarian nama+alamat.
+  function googleMapsUrl(k) {
+    if (k.place_id) {
+      return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(k.place_id)}`;
+    }
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(k.nama + ", " + k.alamat)}`;
+  }
 
   function ratingTier(rating) {
     if (rating >= 4.5) return "high";
@@ -433,7 +446,7 @@ $(function () {
 
   function competitorInfoHtml(k) {
     return `<div style="font-family:Inter,sans-serif;font-size:12.5px;max-width:220px;">
-      <strong>${k.nama}</strong><br>
+      <a href="${googleMapsUrl(k)}" target="_blank" rel="noopener noreferrer" style="color:#4f5df7;font-weight:700;text-decoration:none;">${k.nama} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px;"></i></a><br>
       <span>⭐ ${k.rating.toFixed(1)} · ${k.jumlah_review.toLocaleString("id-ID")} ulasan</span><br>
       <span>${k.rentang_harga}</span><br>
       <span style="color:#6b7280">${k.alamat}</span>
@@ -442,7 +455,8 @@ $(function () {
 
   function showSelectedInfo(k) {
     $("#map-selected-info").html(`
-      <strong>${k.nama}</strong> — ⭐ ${k.rating.toFixed(1)} (${k.jumlah_review.toLocaleString("id-ID")} ulasan) · ${k.rentang_harga}<br>
+      <a class="competitor-link" href="${googleMapsUrl(k)}" target="_blank" rel="noopener noreferrer"><strong>${k.nama}</strong> <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px;"></i></a>
+       — ⭐ ${k.rating.toFixed(1)} (${k.jumlah_review.toLocaleString("id-ID")} ulasan) · ${k.rentang_harga}<br>
       <span style="color:var(--text-faint)">${k.alamat}</span>
     `);
   }

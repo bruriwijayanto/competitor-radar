@@ -41,7 +41,7 @@ Orchestrator (Agno) — jalankan berurutan:
 - **Frontend**: HTML + CSS + jQuery murni, tanpa build step. Disajikan langsung oleh FastAPI (`StaticFiles`) dari origin yang sama — tidak ada masalah CORS, meski `CORSMiddleware` tetap dipasang sebagai cadangan.
 - **Dua mode operasi** (env var `APP_MODE`, default `mock`):
   - `mock` — data kompetitor & ulasan sintetis realistis, sentimen & strategi dari heuristik rule-based. **Berjalan penuh tanpa API key.**
-  - `real` — Data Collector memanggil Google Maps Places API; Sentiment & Strategy Agent memanggil LLM (OpenAI) lewat Agno `Agent`. Jika key tidak lengkap/gagal, otomatis fallback ke mock supaya demo tidak pernah gagal total.
+  - `real` — Data Collector memanggil Google Maps Places API; Sentiment & Strategy Agent memanggil LLM lewat **OpenRouter** (via Agno `Agent`). Jika key tidak lengkap/gagal, otomatis fallback ke mock supaya demo tidak pernah gagal total.
 - **Peta sebaran kompetitor**: setiap kompetitor (mock maupun real) punya koordinat lat/lng. Jika `GOOGLE_MAPS_API_KEY` diset (independen dari `APP_MODE`), frontend merender **Google Map sungguhan** dengan marker berwarna sesuai rating. Jika tidak, frontend otomatis memakai **Leaflet.js + OpenStreetMap** — peta geografis nyata (jalan, gedung, marker presisi) yang sepenuhnya gratis tanpa API key maupun billing.
 
 Detail lebih lengkap (konvensi kode, struktur folder) ada di `CLAUDE.md`.
@@ -53,9 +53,11 @@ Isi `.env` (lihat `.env.example`):
 ```
 APP_MODE=real
 GOOGLE_MAPS_API_KEY=isi_key_anda
-OPENAI_API_KEY=isi_key_anda
-OPENAI_MODEL=gpt-4o-mini
+OPENROUTER_API_KEY=isi_key_anda
+OPENROUTER_MODEL=openai/gpt-4o-mini
 ```
+
+Dapatkan `OPENROUTER_API_KEY` di [openrouter.ai/keys](https://openrouter.ai/keys). Satu key OpenRouter bisa dipakai ganti-ganti model/provider (OpenAI, Anthropic, Google, bahkan model gratis) cukup dengan mengubah `OPENROUTER_MODEL`.
 
 Tidak ada key yang di-hardcode di kode — semua dibaca dari environment variable.
 
@@ -90,7 +92,7 @@ Karena ini demo akademik, beberapa keputusan teknis diambil sendiri tanpa konfir
 3. **Data mock deterministik**: nama kompetitor, rating, dan ulasan digenerate dengan seed dari kombinasi lokasi+kategori, supaya input yang sama menghasilkan tampilan yang konsisten saat demo berulang, tapi tetap bervariasi antar lokasi/kategori berbeda.
 4. **Jumlah kompetitor** dibatasi ke pilihan **5 atau 10** sesuai spesifikasi UI (segmented control); nilai lain yang dikirim langsung ke API akan dibulatkan ke opsi terdekat.
 5. **Radius pencarian** dibatasi 1–5 km sesuai spesifikasi slider.
-6. **Mode real** menggunakan Google Places **Nearby Search + Place Details** (butuh Geocoding untuk mengubah nama lokasi jadi koordinat) dan **OpenAI** sebagai provider LLM default via Agno `OpenAIChat` — dipilih karena paling umum dipakai dan didukung penuh oleh Agno. Provider lain bisa ditambahkan dengan mengganti `agno.models.openai.OpenAIChat` di `sentiment_insight.py`/`strategy.py`.
+6. **Mode real** menggunakan Google Places **Nearby Search + Place Details** (butuh Geocoding untuk mengubah nama lokasi jadi koordinat) dan **OpenRouter** sebagai provider LLM via Agno `OpenRouter` model — dipilih karena satu API key bisa mengakses banyak model/provider berbeda (termasuk model gratis), praktis untuk demo. Provider lain bisa ditambahkan dengan mengganti `agno.models.openrouter.OpenRouter` di `sentiment_insight.py`/`strategy.py`.
 7. **Fallback otomatis ke mock** diterapkan di setiap agent bila mode `real` diminta tapi API key kosong/tidak valid/panggilan gagal — supaya sesi demo langsung di depan kelas tidak pernah gagal total karena masalah jaringan/quota.
 8. **Tanpa database/persistensi** — setiap analisis bersifat stateless, hasil hanya ada di memori selama request SSE berlangsung. Sesuai kebutuhan demo, bukan aplikasi produksi.
 9. **Tanpa autentikasi** — aplikasi diasumsikan dijalankan lokal untuk keperluan presentasi/demo, bukan diekspos ke publik.

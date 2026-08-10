@@ -539,6 +539,23 @@ input[type="range"] {
 .competitor-table tr:last-child td { border-bottom: none; }
 .competitor-table td.cell-name { font-weight: 700; }
 
+.competitor-link {
+  color: var(--text);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.competitor-link i { font-size: 10px; color: var(--text-faint); }
+
+.competitor-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.competitor-link:hover i { color: var(--primary); }
+
 .rating-pill {
   display: inline-flex;
   align-items: center;

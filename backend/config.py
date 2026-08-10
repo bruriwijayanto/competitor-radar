@@ -11,8 +11,10 @@ class Settings:
     APP_MODE: str = os.getenv("APP_MODE", "mock").lower()
 
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    # LLM lewat OpenRouter (satu key, akses banyak model/provider sekaligus).
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
@@ -26,8 +28,8 @@ class Settings:
         return bool(self.GOOGLE_MAPS_API_KEY)
 
     @property
-    def has_openai_key(self) -> bool:
-        return bool(self.OPENAI_API_KEY)
+    def has_openrouter_key(self) -> bool:
+        return bool(self.OPENROUTER_API_KEY)
 
 
 settings = Settings()

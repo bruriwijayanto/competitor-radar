@@ -35,7 +35,7 @@ def health():
         "status": "ok",
         "mode": settings.APP_MODE,
         "google_maps_key_terpasang": settings.has_google_key,
-        "openai_key_terpasang": settings.has_openai_key,
+        "openrouter_key_terpasang": settings.has_openrouter_key,
     }
 
 
