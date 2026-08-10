@@ -89,6 +89,30 @@ flowchart TB
 
 Detail lebih lengkap (konvensi kode, struktur folder) ada di `CLAUDE.md`.
 
+### Peran Masing-Masing Agent
+
+Ketiga agent berjalan **berurutan**, bukan paralel — output satu agent (divalidasi Pydantic) langsung jadi input agent berikutnya (`backend/orchestrator.py`), meniru pola *Agent-to-Agent* (A2A).
+
+**1. Data Collector Agent** (`backend/agents/data_collector.py`)
+- **Tugas**: mencari daftar kompetitor di sekitar lokasi yang diminta (sesuai kategori & radius), lalu mengambil sampel ulasan tiap kompetitor.
+- **Mode mock**: men-generate data kompetitor & ulasan sintetis lewat `mock_data.py` (deterministik berdasarkan lokasi+kategori).
+- **Mode real**: memanggil Google Maps Places API — Geocoding (lokasi → koordinat) → Nearby Search (cari kompetitor) → Place Details (rating, harga, ulasan). Dijaga `rate_limiter.py` (cooldown antar-request + kuota harian) supaya biaya tidak lepas kendali; kalau limit tercapai atau panggilan gagal, otomatis fallback ke mock.
+- **Output ke Agent 2**: `DataCollectorOutput` — daftar kompetitor beserta rating, jumlah review, rentang harga, koordinat, dan ulasan mentah.
+
+**2. Sentiment & Insight Agent** (`backend/agents/sentiment_insight.py`)
+- **Tugas**: menerima output Agent 1, mengklasifikasikan sentimen tiap ulasan (positif/negatif/netral), mengekstraksi tema (harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk), lalu merangkum kekuatan & kelemahan tiap kompetitor.
+- **Mode mock**: heuristik murni — sentimen dari rating ulasan (≥4 positif, =3 netral, ≤2 negatif), tema dari keyword matching Bahasa Indonesia. Tanpa LLM sama sekali.
+- **Mode real**: didelegasikan ke LLM lewat OpenRouter (via Agno `Agent` dengan `output_schema` Pydantic) supaya hasil klasifikasi & ekstraksi tema lebih natural, bukan sekadar keyword matching.
+- **Output ke Agent 3**: `InsightOutput` — insight per kompetitor (persentase sentimen, tema pujian/keluhan, kekuatan/kelemahan) plus ringkasan tema pasar lintas kompetitor.
+
+**3. Strategy Agent** (`backend/agents/strategy.py`)
+- **Tugas**: menerima output Agent 2, menyusun **gap analysis** (celah pasar yang belum dilayani baik kompetitor) dan **rekomendasi strategis** yang actionable (positioning, quick win, diferensiator) untuk usaha pengguna.
+- **Mode mock**: heuristik berbasis agregasi tema pujian/keluhan lintas kompetitor — tema paling sering dikeluhkan jadi celah pasar & quick win, tema yang jarang dipuji jadi peluang diferensiasi.
+- **Mode real**: didelegasikan ke LLM lewat OpenRouter untuk merumuskan gap analysis & rekomendasi yang lebih kontekstual dibanding heuristik rule-based.
+- **Output**: `StrategyOutput` (executive summary, gap analysis, daftar rekomendasi berprioritas, disclaimer) — bagian akhir laporan yang dikirim ke frontend lewat event SSE `complete`.
+
+Ketiganya punya pola yang sama: **selalu jalan** (mock atau real tidak pernah gagal total berkat fallback otomatis), dan kontrak inputnya divalidasi lewat model Pydantic di `backend/schemas.py` sebelum diteruskan ke agent berikutnya.
+
 ## Mode Real (opsional)
 
 Isi `.env` (lihat `.env.example`):
