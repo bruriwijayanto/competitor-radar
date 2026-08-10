@@ -24,6 +24,11 @@ class KategoriUsaha(str, Enum):
     salon = "salon"
     bengkel = "bengkel"
     klinik = "klinik"
+    laundry = "laundry"
+    apotek = "apotek"
+    minimarket = "minimarket"
+    gym = "gym"
+    toko_fashion = "toko fashion"
 
 
 class AnalisisRequest(BaseModel):

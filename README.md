@@ -4,6 +4,8 @@ Sistem intelijen kompetitor bisnis lokal berbasis **multi-agent AI**. Proyek dem
 
 Pengguna memasukkan lokasi & kategori usaha → tiga agent berjalan berurutan (Data Collector → Sentiment & Insight → Strategy) → hasil berupa peta kompetitif, peta sebaran lokasi, analisis sentimen, gap analysis, dan rekomendasi strategis.
 
+Mendukung **10 kategori usaha**: Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym/Fitness, dan Toko Fashion.
+
 ## Cara Menjalankan
 
 Butuh Python **3.10+**. Tidak butuh API key apa pun untuk mode default (mock).
@@ -21,6 +23,16 @@ uvicorn backend.main:app --reload
 Buka **http://127.0.0.1:8000** di browser. Selesai — form input, panel monitoring, dan panel hasil semua ada di satu halaman itu.
 
 Opsional: salin `.env.example` ke `.env` untuk mengatur mode/API key (lihat bagian [Mode Real](#mode-real-opsional) di bawah).
+
+**Ganti port** — tambahkan flag `--port`, mis. mau pakai port 8001:
+
+```bash
+uvicorn backend.main:app --reload --port 8001
+```
+
+Lalu buka `http://127.0.0.1:8001`. Dua hal yang wajib diperhatikan:
+- Perintahnya **`backend.main:app`**, bukan `main:app` — modulnya ada di dalam folder `backend/` dan pakai *relative import*, jadi harus dijalankan sebagai package `backend.main`. Kalau ditulis `main:app` akan muncul error `Could not import module "main"`.
+- Harus dijalankan dari folder **root proyek** ini (tempat folder `backend/` berada), bukan dari dalam `backend/`.
 
 ## Arsitektur Singkat
 
@@ -65,6 +77,33 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 
 Tidak ada key yang di-hardcode di kode — semua dibaca dari environment variable. Setelah mengubah `.env`, restart server (perubahan `.env` tidak otomatis ter-reload oleh `--reload`, yang hanya memantau file `.py`).
 
+## Batasi Biaya Google API
+
+Google mensyaratkan billing account (kartu kredit) untuk `GOOGLE_MAPS_API_KEY`, meski ada kuota gratis bulanan. Supaya tagihan tidak membengkak tanpa disadari (bug, klik berulang, atau demo yang lupa dimatikan), ada dua lapis pengaman:
+
+**1. Level aplikasi (sudah aktif otomatis, bisa diatur di `.env`)**
+
+```
+GOOGLE_API_DAILY_LIMIT=80              # maks. panggilan Google API (geocode+nearby+place details) per hari
+GOOGLE_API_MIN_INTERVAL_SECONDS=3      # jeda minimum antar-request real-mode
+```
+
+Kalau limit harian tercapai, request terlalu cepat menyusul request sebelumnya, **atau panggilan ke Google API gagal karena sebab apa pun** (key salah, API belum di-*enable*, billing belum aktif, kuota Google sendiri habis, dll), backend **otomatis fallback ke data mock** untuk request itu — tidak pernah gagal total, dan alasannya kelihatan langsung di panel log, bukan ditelan diam-diam. Contoh pesan yang muncul di `sumber_data`/log:
+
+- `mock (kuota Google API harian tercapai: 80/80)`
+- `mock (cooldown 3s belum lewat sejak request Google API terakhir)`
+- `mock (Google API gagal: ValueError: Geocoding API: REQUEST_DENIED — This API is not activated on your API project...)` — pesan asli dari Google, biasanya langsung menunjukkan API mana yang perlu di-*enable* di Cloud Console.
+
+Cek sisa kuota kapan saja lewat `GET /api/health` (field `google_api_kuota`). Batas ini in-memory (reset kalau server di-restart) — cukup untuk mencegah lonjakan tak sengaja saat demo, bukan pengganti kontrol resmi Google.
+
+**2. Level Google Cloud Console (pengaman utama — pasang ini juga)**
+
+- **Quotas**: APIs & Services → pilih API (Places/Geocoding/Maps JavaScript) → tab *Quotas* → set batas "Requests per day" sesuai kebutuhan. Ini hard-limit dari Google sendiri, berlaku walau ada bug di aplikasi atau seseorang memakai key-nya langsung di luar app ini.
+- **Budget Alerts**: Billing → Budgets & alerts → buat budget kecil (mis. Rp50.000) dengan alert email di 50%/90%/100% — supaya langsung tahu kalau ada pemakaian tidak wajar.
+- **API key restriction** (sudah disinggung di atas): batasi ke HTTP referrer origin aplikasi ini + hanya 3 API yang dipakai, supaya key tidak bisa disalahgunakan dari luar kalau bocor.
+
+Untuk demo UTS dengan beberapa kali run manual, ketiga lapis ini (app-level limiter + quota + budget alert) membuat risiko tagihan tak terduga sangat kecil.
+
 ## Struktur Folder
 
 ```
@@ -74,10 +113,11 @@ backend/
   schemas.py                  # semua model Pydantic (request + kontrak antar-agent)
   orchestrator.py             # jalankan 3 agent berurutan, emit event SSE
   mock_data.py                # generator data mock realistis (kompetitor, ulasan, koordinat)
+  rate_limiter.py             # pengaman kuota/cooldown Google API
   agents/
     data_collector.py         # Agent 1
     sentiment_insight.py      # Agent 2
-    strategy.py                # Agent 3
+    strategy.py               # Agent 3
 frontend/
   index.html                  # struktur UI
   style.css                   # styling flat design
@@ -99,13 +139,15 @@ Karena ini demo akademik, beberapa keputusan teknis diambil sendiri tanpa konfir
 5. **Radius pencarian** dibatasi 1–5 km sesuai spesifikasi slider.
 6. **Mode real** menggunakan Google Places **Nearby Search + Place Details** (butuh Geocoding untuk mengubah nama lokasi jadi koordinat) dan **OpenRouter** sebagai provider LLM via Agno `OpenRouter` model — dipilih karena satu API key bisa mengakses banyak model/provider berbeda (termasuk model gratis), praktis untuk demo. Provider lain bisa ditambahkan dengan mengganti `agno.models.openrouter.OpenRouter` di `sentiment_insight.py`/`strategy.py`.
 7. **Fallback otomatis ke mock** diterapkan di setiap agent bila mode `real` diminta tapi API key kosong/tidak valid/panggilan gagal — supaya sesi demo langsung di depan kelas tidak pernah gagal total karena masalah jaringan/quota.
-8. **Skema LLM dipisah dari skema penuh** (`InsightOutputLLM`/`InsightKompetitorLLM` vs `InsightOutput`/`InsightKompetitor` di `schemas.py`). Alasan: (a) *structured output* ketat OpenAI/OpenRouter tidak mendukung field `dict` generik tanpa properti tetap, jadi field agregat (`ringkasan_tema_pasar`, `total_ulasan_dianalisis`) dihitung ulang di backend, bukan diminta ke LLM; (b) field `ulasan_terklasifikasi` (echo tiap ulasan individual) sengaja tidak diminta ke LLM karena boros token dan berisiko membuat respons JSON terpotong — field ini tidak dipakai di frontend juga. `tema_pujian`/`tema_keluhan` memakai enum baku (bukan string bebas) supaya LLM konsisten memakai 5 kategori yang sama persis dengan yang dipakai chart.
+8. **Skema LLM dipisah dari skema penuh** (`InsightOutputLLM`/`InsightKompetitorLLM` vs `InsightOutput`/`InsightKompetitor` di `schemas.py`). Alasan: (a) *structured output* ketat OpenAI/OpenRouter tidak mendukung field `dict` generik tanpa properti tetap, jadi field agregat (`ringkasan_tema_pasar`, `total_ulasan_dianalisis`) dihitung ulang di backend, bukan diminta ke LLM; (b) field `ulasan_terklasifikasi` (echo tiap ulasan individual) sengaja tidak diminta ke LLM karena boros token dan berisiko membuat respons JSON terpotong — field ini tidak dipakai di frontend juga. `tema_pujian`/`tema_keluhan` memakai enum `TemaUlasan` baku (bukan string bebas) berisi **5 tema sentimen standar** (harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk) — berlaku untuk semua kategori usaha, supaya LLM konsisten dan cocok dengan yang dipakai chart. (Jangan tertukar dengan **10 kategori usaha** yang berbeda konsep — lihat poin 16.)
 9. **Tanpa database/persistensi** — setiap analisis bersifat stateless, hasil hanya ada di memori selama request SSE berlangsung. Sesuai kebutuhan demo, bukan aplikasi produksi.
 10. **Tanpa autentikasi** — aplikasi diasumsikan dijalankan lokal untuk keperluan presentasi/demo, bukan diekspos ke publik.
 11. Delay kecil (~0.5 detik) disisipkan antar-event SSE di `orchestrator.py` supaya panel monitoring terasa "hidup" saat presentasi, mengingat proses mock sebenarnya berjalan hampir instan.
 12. **Koordinat kompetitor pada mode mock bersifat sintetis** — dihasilkan di sekitar titik pusat kota (dicocokkan dari nama lokasi ke daftar kota besar Indonesia, atau titik acak deterministik di Pulau Jawa jika tidak dikenali), bukan hasil geocoding sungguhan. Cukup realistis untuk keperluan visualisasi demo.
 13. **Google Maps JavaScript API key di-reuse dari `GOOGLE_MAPS_API_KEY`** yang sama dipakai untuk Places API, dan diekspos ke frontend lewat endpoint `/api/maps-key`. Ini sesuai praktik umum Google — Maps JS key memang didesain dipakai di sisi client (dibatasi lewat HTTP referrer restriction di Google Cloud Console), berbeda dari key REST/server yang harus dirahasiakan. Fitur peta ini aktif independen dari `APP_MODE`: kalau key tersedia, kompetitor mock pun akan tampil di atas Google Map sungguhan.
 14. **Link nama kompetitor ke Google Maps** dibangun dari `place_id` (mode real, presisi) atau dari pencarian teks nama+alamat (mode mock, karena kompetitor mock tidak punya `place_id` sungguhan) — keduanya lewat `https://www.google.com/maps/...`, tidak butuh API key untuk sekadar membuka link ini di tab baru.
+15. **Pengaman biaya Google API** (`backend/rate_limiter.py`) sengaja in-memory per proses (bukan disimpan ke database/file) — cukup untuk mencegah lonjakan tak sengaja dalam satu sesi demo, tapi reset kalau server di-restart. Untuk perlindungan yang benar-benar tidak bisa ditembus, pengaturan **Quota** & **Budget Alert** di Google Cloud Console tetap wajib (lihat bagian "Batasi Biaya Google API").
+16. **10 kategori usaha** didukung (`KategoriUsaha` di `schemas.py`): Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym, Toko Fashion. Menambah kategori baru butuh dua tempat: (a) `backend/mock_data.py` — entri `NAMA_POOL`/`ULASAN_TEMPLATE`/`HARGA_RANGE` untuk kategori itu (dipakai mode mock); (b) `frontend/index.html` — opsi baru di dropdown. Mode real tidak butuh perubahan tambahan karena `kategori.value` langsung dipakai sebagai keyword pencarian ke Google Places API. Kelima tema sentimen (lihat poin 8) sengaja dibuat generik supaya otomatis relevan untuk kategori usaha apa pun tanpa perlu disesuaikan lagi.
 
 ## Menguji Cepat via curl
 

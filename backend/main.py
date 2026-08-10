@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .orchestrator import run_pipeline_sse
+from .rate_limiter import google_api_guard
 from .schemas import AnalisisRequest, KategoriUsaha
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,6 +37,7 @@ def health():
         "mode": settings.APP_MODE,
         "google_maps_key_terpasang": settings.has_google_key,
         "openrouter_key_terpasang": settings.has_openrouter_key,
+        "google_api_kuota": google_api_guard.status(),
     }
 
 
@@ -46,7 +48,7 @@ def maps_key():
     peta sungguhan. Key Maps JS memang didesain untuk dipakai di sisi client dan
     dibatasi lewat HTTP referrer restriction di Google Cloud Console — bukan secret
     server seperti key REST lain. Jika key tidak diset, frontend otomatis memakai
-    visualisasi radar buatan sendiri (tidak butuh API key apa pun).
+    Leaflet.js + OpenStreetMap (gratis, tanpa API key apa pun).
     """
     return {"key": settings.GOOGLE_MAPS_API_KEY or None}
 

@@ -12,6 +12,12 @@ class Settings:
 
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
+    # Pengaman supaya panggilan Google API (di luar kuota gratis bisa berbayar) tidak lepas
+    # kendali. Ini pengaman di level aplikasi — tetap pasang Quota & Budget Alert di Google
+    # Cloud Console sebagai pengaman utama (lihat README bagian "Batasi Biaya Google API").
+    GOOGLE_API_DAILY_LIMIT: int = int(os.getenv("GOOGLE_API_DAILY_LIMIT", "80"))
+    GOOGLE_API_MIN_INTERVAL_SECONDS: float = float(os.getenv("GOOGLE_API_MIN_INTERVAL_SECONDS", "3"))
+
     # LLM lewat OpenRouter (satu key, akses banyak model/provider sekaligus).
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")

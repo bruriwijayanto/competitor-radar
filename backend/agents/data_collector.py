@@ -5,16 +5,41 @@ Tanggung jawab tunggal: mengambil daftar kompetitor + sampel ulasan berdasarkan
 lokasi, kategori, radius, dan top-N yang diminta pengguna.
 
 - Mode mock (default, tanpa API key): pakai backend/mock_data.py.
-- Mode real: panggil Google Maps Places API (butuh GOOGLE_MAPS_API_KEY).
+- Mode real: panggil Google Maps Places API (butuh GOOGLE_MAPS_API_KEY). Dibatasi
+  backend/rate_limiter.py (cooldown antar-request + kuota harian) supaya biaya tidak
+  lepas kendali; kalau limit tercapai, otomatis fallback ke mock (lihat sumber_data
+  pada output untuk tahu alasannya).
 
 Output agent ini (DataCollectorOutput) adalah kontrak A2A yang akan dikonsumsi
 langsung oleh Agent 2 (Sentiment & Insight) — lihat orchestrator.py.
 """
+import logging
+
 from agno.agent import Agent
 
 from ..config import settings
 from ..mock_data import generate_mock_kompetitor
+from ..rate_limiter import google_api_guard
 from ..schemas import AnalisisRequest, DataCollectorOutput
+
+logger = logging.getLogger(__name__)
+
+
+def _ringkas_error_google(exc: Exception) -> str:
+    """Ekstrak pesan error Google API yang ringkas & bisa dibaca dari berbagai tipe exception."""
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        try:
+            body = exc.response.json()
+            status = body.get("status") or body.get("error", {}).get("status")
+            pesan = body.get("error_message") or body.get("error", {}).get("message")
+            if status or pesan:
+                return f"{status or exc.response.status_code}: {pesan or 'lihat log server'}"
+        except Exception:
+            pass
+        return f"HTTP {exc.response.status_code}"
+    return f"{type(exc).__name__}: {exc}"
 
 
 class DataCollectorAgent:
@@ -59,6 +84,24 @@ class DataCollectorAgent:
 
         from ..schemas import KompetitorRaw, UlasanMentah
 
+        # --- Pengaman biaya: cooldown & kuota harian (lihat backend/rate_limiter.py) ---
+        if not google_api_guard.cek_cooldown():
+            hasil = self._run_mock(req)
+            jeda = settings.GOOGLE_API_MIN_INTERVAL_SECONDS
+            hasil.sumber_data = f"mock (cooldown {jeda:.0f}s belum lewat sejak request Google API terakhir)"
+            return hasil
+
+        # Perkiraan panggilan: 1 geocode + 1 nearby search + top_n place details.
+        perkiraan_panggilan = 2 + req.top_n
+        if not google_api_guard.cek_kuota(perkiraan_panggilan):
+            status = google_api_guard.status()
+            hasil = self._run_mock(req)
+            hasil.sumber_data = (
+                f"mock (kuota Google API harian tercapai: {status['dipakai_hari_ini']}/{status['batas_harian']})"
+            )
+            return hasil
+        # --------------------------------------------------------------------------------
+
         api_key = settings.GOOGLE_MAPS_API_KEY
         radius_m = int(req.radius_km * 1000)
 
@@ -69,9 +112,15 @@ class DataCollectorAgent:
                     params={"address": req.lokasi, "key": api_key},
                 )
                 geocode_resp.raise_for_status()
+                google_api_guard.catat_panggilan()
                 geo = geocode_resp.json()
-                if not geo.get("results"):
-                    raise ValueError("Lokasi tidak ditemukan oleh Google Geocoding API")
+                # Google Geocoding/Places API sering balas HTTP 200 walau gagal — status &
+                # pesan errornya ada di body JSON, bukan di status code, jadi raise_for_status()
+                # saja tidak cukup untuk mendeteksi key salah/API belum aktif/billing, dll.
+                if geo.get("status") not in ("OK",):
+                    raise ValueError(
+                        f"Geocoding API: {geo.get('status')} — {geo.get('error_message', 'lihat dokumentasi Google')}"
+                    )
                 loc = geo["results"][0]["geometry"]["location"]
 
                 nearby_resp = client.get(
@@ -84,7 +133,14 @@ class DataCollectorAgent:
                     },
                 )
                 nearby_resp.raise_for_status()
-                places = nearby_resp.json().get("results", [])[: req.top_n]
+                google_api_guard.catat_panggilan()
+                nearby_json = nearby_resp.json()
+                if nearby_json.get("status") not in ("OK", "ZERO_RESULTS"):
+                    raise ValueError(
+                        f"Places Nearby Search: {nearby_json.get('status')} — "
+                        f"{nearby_json.get('error_message', 'lihat dokumentasi Google')}"
+                    )
+                places = nearby_json.get("results", [])[: req.top_n]
 
                 kompetitor: list[KompetitorRaw] = []
                 for place in places:
@@ -97,6 +153,7 @@ class DataCollectorAgent:
                         },
                     )
                     detail_resp.raise_for_status()
+                    google_api_guard.catat_panggilan()
                     detail = detail_resp.json().get("result", {})
 
                     price_level = detail.get("price_level")
@@ -148,6 +205,12 @@ class DataCollectorAgent:
                 pusat_lat=loc.get("lat"),
                 pusat_lng=loc.get("lng"),
             )
-        except Exception:
-            # Fallback aman: jika real API gagal (key salah/kuota/dsb), demo tetap jalan pakai mock.
-            return self._run_mock(req)
+        except Exception as exc:
+            # Fallback aman: jika real API gagal (key salah/API belum aktif/billing/dsb), demo tetap
+            # jalan pakai mock. Alasannya dicatat ke log server DAN diselipkan ke sumber_data supaya
+            # langsung kelihatan di panel log UI — tidak silent, biar gampang didiagnosis.
+            alasan = _ringkas_error_google(exc)
+            logger.warning("Google Places API gagal, fallback ke mock: %s", alasan)
+            hasil = self._run_mock(req)
+            hasil.sumber_data = f"mock (Google API gagal: {alasan})"
+            return hasil
