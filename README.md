@@ -36,16 +36,44 @@ Lalu buka `http://127.0.0.1:8001`. Dua hal yang wajib diperhatikan:
 
 ## Arsitektur Singkat
 
-```
-Browser (index.html + app.js)
-   │  EventSource GET /api/analisis/stream?...
-   ▼
-FastAPI (backend/main.py)
-   │  StreamingResponse (SSE) dari orchestrator.py
-   ▼
-Orchestrator (Agno) — jalankan berurutan:
-   Agent 1: Data Collector  →  Agent 2: Sentiment & Insight  →  Agent 3: Strategy
-   (output Agent N divalidasi Pydantic, jadi input Agent N+1 — pola ala A2A)
+```mermaid
+flowchart TB
+    classDef frontend fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef backend fill:#ede9fe,stroke:#6d28d9,color:#4c1d95
+    classDef agent fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef external fill:#fef3c7,stroke:#b45309,color:#78350f
+    classDef mock fill:#f1f5f9,stroke:#64748b,color:#334155
+
+    UI["🖥️ Browser<br/>index.html + app.js<br/>Form · Panel Monitoring · Panel Hasil"]:::frontend
+
+    API["⚡ FastAPI — backend/main.py<br/>GET /api/analisis/stream"]:::backend
+    ORC["🧭 orchestrator.py<br/>jalankan 3 agent berurutan,<br/>emit event SSE"]:::backend
+
+    subgraph PIPE [" 🤖 Agent Pipeline (Agno) — pola Agent-to-Agent "]
+        direction LR
+        A1["Agent 1<br/>Data Collector"]:::agent
+        A2["Agent 2<br/>Sentiment &amp; Insight"]:::agent
+        A3["Agent 3<br/>Strategy"]:::agent
+        A1 -- "handoff A2A<br/>DataCollectorOutput" --> A2
+        A2 -- "handoff A2A<br/>InsightOutput" --> A3
+    end
+
+    MOCK["📦 mock_data.py<br/>mode mock (default)<br/>tanpa API key"]:::mock
+    GMAPS["🗺️ Google Places API<br/>dijaga rate_limiter.py<br/>(kuota harian + cooldown)"]:::external
+    LLM["🧠 LLM via OpenRouter<br/>output terstruktur (Pydantic)"]:::external
+
+    UI == "EventSource GET" ==> API
+    API --> ORC
+    ORC --> A1
+    A3 --> ORC
+    ORC == "SSE: start · progress ·<br/>handoff · done · complete" ==> UI
+
+    A1 -. mode mock .-> MOCK
+    A1 -. mode real .-> GMAPS
+    A2 -. mode mock .-> MOCK
+    A2 -. mode real .-> LLM
+    A3 -. mode mock .-> MOCK
+    A3 -. mode real .-> LLM
 ```
 
 - **Backend**: FastAPI + [Agno](https://github.com/agno-agi/agno) (framework agent). Setiap agent = satu file di `backend/agents/`. Kontrak data antar-agent didefinisikan terpusat di `backend/schemas.py` dengan Pydantic.
@@ -130,7 +158,6 @@ requirements.txt
 
 ## Asumsi & Keputusan Teknis
 
-Karena ini demo akademik, beberapa keputusan teknis diambil sendiri tanpa konfirmasi lebih lanjut:
 
 1. **Python 3.10** dipakai (bukan 3.9 bawaan sistem) karena kompatibilitas dengan library `agno` versi terbaru. Dipin lewat `.python-version` (pyenv).
 2. **Klasifikasi sentimen mode mock** memakai heuristik rating per-ulasan (rating ≥4 → positif, =3 → netral, ≤2 → negatif) dikombinasikan dengan keyword matching Bahasa Indonesia untuk ekstraksi tema — bukan NLP/LLM sungguhan, karena mode mock harus jalan tanpa API key sama sekali.
