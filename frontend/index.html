@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Competitor Radar — Intelijen Kompetitor Bisnis Lokal</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ============================= HEADER ============================= -->
+  <header class="app-header">
+    <div class="app-header__brand">
+      <div class="app-header__logo"><i class="fa-solid fa-satellite-dish"></i></div>
+      <div>
+        <h1>Competitor Radar</h1>
+        <p>Intelijen Kompetitor Bisnis Lokal Berbasis Multi-Agent AI</p>
+      </div>
+    </div>
+    <div class="app-header__mode">
+      <span class="badge badge--mode" id="mode-badge"><i class="fa-solid fa-circle-nodes"></i> memuat mode…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- ============================= FORM INPUT ============================= -->
+    <section class="card card--form" id="form-section">
+      <h2 class="card__title"><i class="fa-solid fa-sliders"></i> Form Analisis</h2>
+      <p class="card__subtitle">Isi detail bisnis yang ingin dianalisis, lalu jalankan pipeline multi-agent.</p>
+
+      <form id="analysis-form">
+        <div class="field">
+          <label for="nama_usaha">Nama Usaha <span class="field__optional">(opsional)</span></label>
+          <input type="text" id="nama_usaha" name="nama_usaha" placeholder="mis. Kopi Kita">
+        </div>
+
+        <div class="field">
+          <label for="lokasi">Lokasi <span class="field__required">*</span></label>
+          <input type="text" id="lokasi" name="lokasi" placeholder="mis. Dago, Bandung" required>
+        </div>
+
+        <div class="field">
+          <label for="kategori">Kategori Usaha <span class="field__required">*</span></label>
+          <select id="kategori" name="kategori" required>
+            <option value="coffee shop">Coffee Shop</option>
+            <option value="restoran">Restoran</option>
+            <option value="salon">Salon</option>
+            <option value="bengkel">Bengkel</option>
+            <option value="klinik">Klinik</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="radius_km">Radius Pencarian <span class="field__value" id="radius-value">2 km</span></label>
+          <input type="range" id="radius_km" name="radius_km" min="1" max="5" step="1" value="2">
+          <div class="field__scale"><span>1 km</span><span>5 km</span></div>
+        </div>
+
+        <div class="field">
+          <label>Jumlah Kompetitor</label>
+          <div class="segmented" id="top_n_group">
+            <button type="button" class="segmented__option is-active" data-value="5">Top 5</button>
+            <button type="button" class="segmented__option" data-value="10">Top 10</button>
+          </div>
+          <input type="hidden" id="top_n" name="top_n" value="5">
+        </div>
+
+        <button type="submit" class="btn btn--primary" id="submit-btn">
+          <i class="fa-solid fa-play"></i> Jalankan Analisis
+        </button>
+      </form>
+    </section>
+
+    <!-- ============================= PANEL MONITORING AGENT ============================= -->
+    <section class="card card--monitor" id="monitoring-section" hidden>
+      <h2 class="card__title"><i class="fa-solid fa-diagram-project"></i> Panel Monitoring Agent</h2>
+      <p class="card__subtitle" id="monitor-subtitle">Menunggu pipeline dimulai…</p>
+
+      <div class="pipeline" id="pipeline">
+        <div class="agent-node" data-agent="Data Collector Agent">
+          <div class="agent-node__icon"><i class="fa-solid fa-magnifying-glass-location"></i></div>
+          <div class="agent-node__body">
+            <div class="agent-node__name">Data Collector</div>
+            <div class="agent-node__desc">Kumpulkan kompetitor &amp; ulasan</div>
+            <div class="agent-node__status">
+              <span class="status-badge status-badge--idle" data-status-badge>Idle</span>
+              <span class="agent-node__timer" data-timer>0.0s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="handoff" id="handoff-1">
+          <i class="fa-solid fa-arrow-right-long"></i>
+          <span class="handoff__label">A2A</span>
+        </div>
+
+        <div class="agent-node" data-agent="Sentiment &amp; Insight Agent">
+          <div class="agent-node__icon"><i class="fa-solid fa-comments"></i></div>
+          <div class="agent-node__body">
+            <div class="agent-node__name">Sentiment &amp; Insight</div>
+            <div class="agent-node__desc">Klasifikasi sentimen &amp; tema</div>
+            <div class="agent-node__status">
+              <span class="status-badge status-badge--idle" data-status-badge>Idle</span>
+              <span class="agent-node__timer" data-timer>0.0s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="handoff" id="handoff-2">
+          <i class="fa-solid fa-arrow-right-long"></i>
+          <span class="handoff__label">A2A</span>
+        </div>
+
+        <div class="agent-node" data-agent="Strategy Agent">
+          <div class="agent-node__icon"><i class="fa-solid fa-chess-knight"></i></div>
+          <div class="agent-node__body">
+            <div class="agent-node__name">Strategy</div>
+            <div class="agent-node__desc">Gap analysis &amp; rekomendasi</div>
+            <div class="agent-node__status">
+              <span class="status-badge status-badge--idle" data-status-badge>Idle</span>
+              <span class="agent-node__timer" data-timer>0.0s</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="handoff-preview" id="handoff-preview" hidden>
+        <div class="handoff-preview__header">
+          <i class="fa-solid fa-right-left"></i>
+          <span id="handoff-preview-title">Payload Handoff Antar-Agent</span>
+        </div>
+        <pre id="handoff-preview-json"></pre>
+      </div>
+
+      <div class="log-panel">
+        <div class="log-panel__header"><i class="fa-solid fa-terminal"></i> Log Aktivitas</div>
+        <div class="log-area" id="log-area"></div>
+      </div>
+    </section>
+
+    <!-- ============================= PANEL HASIL ============================= -->
+    <section class="card card--result" id="result-section" hidden>
+      <h2 class="card__title"><i class="fa-solid fa-chart-line"></i> Hasil Analisis</h2>
+
+      <div class="result-block" id="exec-summary-block">
+        <h3><i class="fa-solid fa-file-lines"></i> Ringkasan Eksekutif</h3>
+        <p id="exec-summary-text"></p>
+      </div>
+
+      <div class="result-block">
+        <h3><i class="fa-solid fa-table"></i> Peta Kompetitif</h3>
+        <div class="table-scroll">
+          <table class="competitor-table">
+            <thead>
+              <tr>
+                <th>Kompetitor</th>
+                <th>Rating</th>
+                <th>Jml. Review</th>
+                <th>Rentang Harga</th>
+                <th>Kekuatan</th>
+                <th>Kelemahan</th>
+              </tr>
+            </thead>
+            <tbody id="competitor-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="result-block">
+        <h3><i class="fa-solid fa-chart-column"></i> Visualisasi Sentimen per Tema</h3>
+        <div class="chart-wrap">
+          <canvas id="sentiment-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="result-block result-block--split">
+        <div>
+          <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Gap Analysis</h3>
+          <h4>Celah Pasar</h4>
+          <ul class="bullet-list" id="gap-celah-list"></ul>
+          <h4>Peluang Diferensiasi</h4>
+          <ul class="bullet-list" id="gap-peluang-list"></ul>
+        </div>
+        <div>
+          <h3><i class="fa-solid fa-list-check"></i> Rekomendasi Strategis</h3>
+          <div id="rekomendasi-list"></div>
+        </div>
+      </div>
+
+      <div class="disclaimer" id="disclaimer-text"></div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    Competitor Radar — Proyek demo akademik UTS AI Innovation &amp; Entrepreneurship. Bukan riset pasar formal.
+  </footer>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
