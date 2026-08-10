@@ -4,10 +4,65 @@ Generator data mock realistis untuk mode `mock` (default, tanpa API key apa pun)
 Data dibuat deterministik berdasarkan seed dari (lokasi + kategori) agar hasil terasa
 konsisten untuk input yang sama, tapi tetap bervariasi antar lokasi/kategori berbeda.
 """
+import math
 import random
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from .schemas import KompetitorRaw, UlasanMentah
+
+# ---------------------------------------------------------------------------
+# Koordinat pusat kota untuk keperluan visualisasi peta (sintetis, bukan geocoding
+# sungguhan). Dicocokkan lewat substring pada nama lokasi; fallback ke titik acak
+# deterministik di sekitar Pulau Jawa jika kota tidak dikenali.
+# ---------------------------------------------------------------------------
+
+KOTA_KNOWN: Dict[str, Tuple[float, float]] = {
+    "jakarta": (-6.2088, 106.8456),
+    "bandung": (-6.9175, 107.6191),
+    "surabaya": (-7.2575, 112.7521),
+    "yogyakarta": (-7.7956, 110.3695),
+    "jogja": (-7.7956, 110.3695),
+    "malang": (-7.9666, 112.6326),
+    "semarang": (-6.9932, 110.4203),
+    "medan": (3.5952, 98.6722),
+    "makassar": (-5.1477, 119.4327),
+    "denpasar": (-8.6705, 115.2126),
+    "bali": (-8.4095, 115.1889),
+    "bogor": (-6.5971, 106.8060),
+    "depok": (-6.4025, 106.7942),
+    "bekasi": (-6.2383, 106.9756),
+    "tangerang": (-6.1783, 106.6319),
+    "solo": (-7.5755, 110.8243),
+    "surakarta": (-7.5755, 110.8243),
+    "palembang": (-2.9761, 104.7754),
+    "balikpapan": (-1.2379, 116.8529),
+    "padang": (-0.9471, 100.4172),
+    "manado": (1.4748, 124.8421),
+}
+
+JAVA_BBOX = {"lat_min": -8.2, "lat_max": -6.0, "lng_min": 106.0, "lng_max": 114.5}
+
+
+def _titik_pusat(lokasi: str, rng: random.Random) -> Tuple[float, float]:
+    lokasi_lower = lokasi.strip().lower()
+    for kota, koordinat in KOTA_KNOWN.items():
+        if kota in lokasi_lower:
+            # Sedikit jitter supaya tidak selalu persis di titik yang sama.
+            jitter = 0.01
+            return (koordinat[0] + rng.uniform(-jitter, jitter), koordinat[1] + rng.uniform(-jitter, jitter))
+    return (
+        rng.uniform(JAVA_BBOX["lat_min"], JAVA_BBOX["lat_max"]),
+        rng.uniform(JAVA_BBOX["lng_min"], JAVA_BBOX["lng_max"]),
+    )
+
+
+def _titik_sekitar(pusat_lat: float, pusat_lng: float, radius_km: float, rng: random.Random) -> Tuple[float, float]:
+    """Sebar titik acak di dalam lingkaran radius_km dari titik pusat (proyeksi datar sederhana)."""
+    sudut = rng.uniform(0, 2 * math.pi)
+    jarak_km = rng.uniform(0.15, radius_km)
+    dlat = (jarak_km * math.cos(sudut)) / 111.0
+    dlng = (jarak_km * math.sin(sudut)) / (111.0 * math.cos(math.radians(pusat_lat)) or 1)
+    return (pusat_lat + dlat, pusat_lng + dlng)
 
 # ---------------------------------------------------------------------------
 # Nama usaha per kategori (dipakai untuk generate nama kompetitor)
@@ -133,10 +188,17 @@ HARGA_RANGE: Dict[str, List[str]] = {
 }
 
 
-def generate_mock_kompetitor(lokasi: str, kategori: str, top_n: int) -> List[KompetitorRaw]:
-    """Hasilkan daftar kompetitor mock realistis lengkap dengan ulasan sampel."""
+def generate_mock_kompetitor(
+    lokasi: str, kategori: str, top_n: int, radius_km: float = 2.0
+) -> Tuple[List[KompetitorRaw], float, float]:
+    """Hasilkan daftar kompetitor mock realistis lengkap dengan ulasan sampel & koordinat peta.
+
+    Mengembalikan (daftar_kompetitor, pusat_lat, pusat_lng).
+    """
     seed_str = f"{lokasi.strip().lower()}::{kategori}"
     rng = random.Random(seed_str)
+
+    pusat_lat, pusat_lng = _titik_pusat(lokasi, rng)
 
     nama_pool = NAMA_POOL.get(kategori, NAMA_POOL["coffee shop"])
     ulasan_pool = ULASAN_TEMPLATE.get(kategori, ULASAN_TEMPLATE["coffee shop"])
@@ -152,6 +214,7 @@ def generate_mock_kompetitor(lokasi: str, kategori: str, top_n: int) -> List[Kom
         jalan = rng.choice(ALAMAT_JALAN)
         alamat = f"{jalan} No. {rng.randint(1, 150)}, {lokasi.strip().title()}"
         harga = rng.choice(harga_pool)
+        lat, lng = _titik_sekitar(pusat_lat, pusat_lng, radius_km, rng)
 
         jumlah_ulasan = rng.randint(4, 5)
         sample_ulasan = rng.sample(ulasan_pool, k=min(jumlah_ulasan, len(ulasan_pool)))
@@ -172,7 +235,9 @@ def generate_mock_kompetitor(lokasi: str, kategori: str, top_n: int) -> List[Kom
                 jumlah_review=jumlah_review,
                 rentang_harga=harga,
                 ulasan=ulasan_objs,
+                lat=round(lat, 6),
+                lng=round(lng, 6),
             )
         )
 
-    return kompetitor_list
+    return kompetitor_list, round(pusat_lat, 6), round(pusat_lng, 6)

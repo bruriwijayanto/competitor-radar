@@ -14,6 +14,10 @@ $(function () {
 
   let eventSource = null;
   let sentimentChart = null;
+  let googleMap = null;
+  let googleMapsLoadPromise = null;
+  let leafletMap = null;
+  let mapsApiKey = null; // diisi dari /api/maps-key sekali di awal
   const agentState = {}; // { [agentName]: { $node, $badge, $timer, timerInterval, startTime } }
 
   // ---------------------------------------------------------------- setup
@@ -30,6 +34,13 @@ $(function () {
   });
 
   fetchHealth();
+  fetchMapsKey();
+
+  function fetchMapsKey() {
+    $.getJSON("/api/maps-key")
+      .done((res) => { mapsApiKey = res.key || null; })
+      .fail(() => { mapsApiKey = null; });
+  }
 
   function fetchHealth() {
     $.getJSON("/api/health")
@@ -237,6 +248,7 @@ $(function () {
     $("#exec-summary-text").text(strategi.executive_summary);
 
     renderCompetitorTable(data_collector.kompetitor, insight.insight_kompetitor);
+    renderCompetitorMap(data_collector);
     renderSentimentChart(insight.ringkasan_tema_pasar);
     renderGapAnalysis(strategi.gap_analysis);
     renderRekomendasi(strategi.rekomendasi);
@@ -270,6 +282,169 @@ $(function () {
       `);
       $body.append($row);
     });
+  }
+
+  // ---------------------------------------------------------------- peta sebaran kompetitor
+
+  function ratingTier(rating) {
+    if (rating >= 4.5) return "high";
+    if (rating >= 3.5) return "mid";
+    return "low";
+  }
+
+  const TIER_COLOR = { high: "#16a34a", mid: "#d97706", low: "#dc2626" };
+
+  function renderCompetitorMap(dataCollector) {
+    const $note = $("#map-source-note");
+    const punyaKoordinat = dataCollector.pusat_lat != null && dataCollector.pusat_lng != null;
+
+    if (!punyaKoordinat) {
+      $("#competitor-map").html('<div style="padding:20px;color:var(--text-faint);font-size:13px;">Koordinat tidak tersedia untuk lokasi ini.</div>');
+      $note.text("");
+      return;
+    }
+
+    if (mapsApiKey) {
+      $note.html('<i class="fa-solid fa-circle-check" style="color:var(--green)"></i> Google Maps aktif');
+      loadGoogleMaps(mapsApiKey)
+        .then(() => renderGoogleMap(dataCollector))
+        .catch(() => renderLeafletMap(dataCollector)); // gagal load Maps JS -> tetap tampil via peta gratis
+    } else {
+      $note.html('<i class="fa-solid fa-map"></i> Peta OpenStreetMap (gratis, tanpa API key)');
+      renderLeafletMap(dataCollector);
+    }
+  }
+
+  function loadGoogleMaps(key) {
+    if (window.google && window.google.maps) return Promise.resolve();
+    if (googleMapsLoadPromise) return googleMapsLoadPromise;
+
+    googleMapsLoadPromise = new Promise((resolve, reject) => {
+      window.__onGoogleMapsLoaded = () => resolve();
+      const script = document.createElement("script");
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=__onGoogleMapsLoaded`;
+      script.async = true;
+      script.onerror = () => reject(new Error("Gagal memuat Google Maps JavaScript API"));
+      document.head.appendChild(script);
+    });
+    return googleMapsLoadPromise;
+  }
+
+  function renderGoogleMap(dataCollector) {
+    $("#competitor-map").empty();
+    const pusat = { lat: dataCollector.pusat_lat, lng: dataCollector.pusat_lng };
+    const zoomByRadius = { 1: 15, 2: 14, 3: 13, 4: 13, 5: 12 };
+
+    googleMap = new google.maps.Map(document.getElementById("competitor-map"), {
+      center: pusat,
+      zoom: zoomByRadius[Math.round(dataCollector.radius_km)] || 13,
+      disableDefaultUI: true,
+      zoomControl: true,
+      styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
+    });
+
+    new google.maps.Marker({
+      position: pusat,
+      map: googleMap,
+      title: "Titik pusat pencarian",
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#4f5df7", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 },
+    });
+
+    new google.maps.Circle({
+      map: googleMap,
+      center: pusat,
+      radius: dataCollector.radius_km * 1000,
+      fillColor: "#4f5df7",
+      fillOpacity: 0.06,
+      strokeColor: "#4f5df7",
+      strokeOpacity: 0.4,
+      strokeWeight: 1.5,
+    });
+
+    const infoWindow = new google.maps.InfoWindow();
+    dataCollector.kompetitor.forEach((k) => {
+      if (k.lat == null || k.lng == null) return;
+      const marker = new google.maps.Marker({
+        position: { lat: k.lat, lng: k.lng },
+        map: googleMap,
+        title: k.nama,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: TIER_COLOR[ratingTier(k.rating)],
+          fillOpacity: 1,
+          strokeColor: "#fff",
+          strokeWeight: 2,
+        },
+      });
+      marker.addListener("click", () => {
+        infoWindow.setContent(competitorInfoHtml(k));
+        infoWindow.open(googleMap, marker);
+        showSelectedInfo(k);
+      });
+    });
+  }
+
+  function renderLeafletMap(dataCollector) {
+    $("#competitor-map").empty();
+    if (leafletMap) {
+      leafletMap.remove(); // buang instance peta lama sebelum re-render (Leaflet tidak bisa init dobel di container yang sama)
+      leafletMap = null;
+    }
+
+    const pusat = [dataCollector.pusat_lat, dataCollector.pusat_lng];
+    const zoomByRadius = { 1: 15, 2: 14, 3: 13, 4: 13, 5: 12 };
+
+    leafletMap = L.map("competitor-map", { scrollWheelZoom: false }).setView(
+      pusat,
+      zoomByRadius[Math.round(dataCollector.radius_km)] || 13
+    );
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(leafletMap);
+
+    L.circleMarker(pusat, { radius: 9, weight: 2, color: "#fff", fillColor: "#4f5df7", fillOpacity: 1 })
+      .addTo(leafletMap)
+      .bindTooltip("Titik pusat pencarian");
+
+    L.circle(pusat, {
+      radius: dataCollector.radius_km * 1000,
+      weight: 1.5,
+      color: "#4f5df7",
+      fillColor: "#4f5df7",
+      fillOpacity: 0.06,
+    }).addTo(leafletMap);
+
+    dataCollector.kompetitor.forEach((k) => {
+      if (k.lat == null || k.lng == null) return;
+      const marker = L.circleMarker([k.lat, k.lng], {
+        radius: 8,
+        weight: 2,
+        color: "#fff",
+        fillColor: TIER_COLOR[ratingTier(k.rating)],
+        fillOpacity: 1,
+      }).addTo(leafletMap);
+      marker.bindPopup(competitorInfoHtml(k));
+      marker.on("click", () => showSelectedInfo(k));
+    });
+  }
+
+  function competitorInfoHtml(k) {
+    return `<div style="font-family:Inter,sans-serif;font-size:12.5px;max-width:220px;">
+      <strong>${k.nama}</strong><br>
+      <span>⭐ ${k.rating.toFixed(1)} · ${k.jumlah_review.toLocaleString("id-ID")} ulasan</span><br>
+      <span>${k.rentang_harga}</span><br>
+      <span style="color:#6b7280">${k.alamat}</span>
+    </div>`;
+  }
+
+  function showSelectedInfo(k) {
+    $("#map-selected-info").html(`
+      <strong>${k.nama}</strong> — ⭐ ${k.rating.toFixed(1)} (${k.jumlah_review.toLocaleString("id-ID")} ulasan) · ${k.rentang_harga}<br>
+      <span style="color:var(--text-faint)">${k.alamat}</span>
+    `);
   }
 
   function renderSentimentChart(ringkasanTemaPasar) {

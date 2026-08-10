@@ -556,6 +556,76 @@ input[type="range"] {
 .mini-list--weak li { color: var(--red); }
 .mini-list li::marker { font-size: 10px; }
 
+/* ---------------------------------------------------------------- peta kompetitor */
+
+.map-wrap {
+  background: var(--surface-soft);
+  border-radius: var(--radius-md);
+  padding: 18px;
+}
+
+#competitor-map {
+  width: 100%;
+  height: 420px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  position: relative;
+  background: #e9edf8;
+}
+
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  align-items: center;
+}
+
+.map-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.map-legend__note { margin-left: auto; font-style: italic; color: var(--text-faint); }
+
+.map-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.08);
+}
+.map-dot--high { background: var(--green); }
+.map-dot--mid { background: var(--amber); }
+.map-dot--low { background: var(--red); }
+
+/* --- peta OpenStreetMap via Leaflet.js (dipakai saat tidak ada GOOGLE_MAPS_API_KEY) --- */
+
+#competitor-map .leaflet-container {
+  font-family: "Inter", sans-serif;
+  border-radius: var(--radius-sm);
+}
+
+#competitor-map .leaflet-popup-content {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+#competitor-map .leaflet-popup-content strong {
+  color: var(--text);
+}
+
+.map-selected-info {
+  margin-top: 12px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.map-selected-info strong { color: var(--text); }
+
 .chart-wrap {
   background: var(--surface-soft);
   border-radius: var(--radius-md);

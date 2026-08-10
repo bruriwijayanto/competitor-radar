@@ -42,6 +42,7 @@ Orchestrator (Agno) — jalankan berurutan:
 - **Dua mode operasi** (env var `APP_MODE`, default `mock`):
   - `mock` — data kompetitor & ulasan sintetis realistis, sentimen & strategi dari heuristik rule-based. **Berjalan penuh tanpa API key.**
   - `real` — Data Collector memanggil Google Maps Places API; Sentiment & Strategy Agent memanggil LLM (OpenAI) lewat Agno `Agent`. Jika key tidak lengkap/gagal, otomatis fallback ke mock supaya demo tidak pernah gagal total.
+- **Peta sebaran kompetitor**: setiap kompetitor (mock maupun real) punya koordinat lat/lng. Jika `GOOGLE_MAPS_API_KEY` diset (independen dari `APP_MODE`), frontend merender **Google Map sungguhan** dengan marker berwarna sesuai rating. Jika tidak, frontend otomatis memakai **Leaflet.js + OpenStreetMap** — peta geografis nyata (jalan, gedung, marker presisi) yang sepenuhnya gratis tanpa API key maupun billing.
 
 Detail lebih lengkap (konvensi kode, struktur folder) ada di `CLAUDE.md`.
 
@@ -94,6 +95,8 @@ Karena ini demo akademik, beberapa keputusan teknis diambil sendiri tanpa konfir
 8. **Tanpa database/persistensi** — setiap analisis bersifat stateless, hasil hanya ada di memori selama request SSE berlangsung. Sesuai kebutuhan demo, bukan aplikasi produksi.
 9. **Tanpa autentikasi** — aplikasi diasumsikan dijalankan lokal untuk keperluan presentasi/demo, bukan diekspos ke publik.
 10. Delay kecil (~0.5 detik) disisipkan antar-event SSE di `orchestrator.py` supaya panel monitoring terasa "hidup" saat presentasi, mengingat proses mock sebenarnya berjalan hampir instan.
+11. **Koordinat kompetitor pada mode mock bersifat sintetis** — dihasilkan di sekitar titik pusat kota (dicocokkan dari nama lokasi ke daftar kota besar Indonesia, atau titik acak deterministik di Pulau Jawa jika tidak dikenali), bukan hasil geocoding sungguhan. Cukup realistis untuk keperluan visualisasi demo.
+12. **Google Maps JavaScript API key di-reuse dari `GOOGLE_MAPS_API_KEY`** yang sama dipakai untuk Places API, dan diekspos ke frontend lewat endpoint `/api/maps-key`. Ini sesuai praktik umum Google — Maps JS key memang didesain dipakai di sisi client (dibatasi lewat HTTP referrer restriction di Google Cloud Console), berbeda dari key REST/server yang harus dirahasiakan. Fitur peta ini aktif independen dari `APP_MODE`: kalau key tersedia, kompetitor mock pun akan tampil di atas Google Map sungguhan.
 
 ## Menguji Cepat via curl
 

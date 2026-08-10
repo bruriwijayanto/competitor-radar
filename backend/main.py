@@ -39,6 +39,18 @@ def health():
     }
 
 
+@app.get("/api/maps-key")
+def maps_key():
+    """
+    Ekspos Google Maps JavaScript API key (jika diset) supaya frontend bisa merender
+    peta sungguhan. Key Maps JS memang didesain untuk dipakai di sisi client dan
+    dibatasi lewat HTTP referrer restriction di Google Cloud Console — bukan secret
+    server seperti key REST lain. Jika key tidak diset, frontend otomatis memakai
+    visualisasi radar buatan sendiri (tidak butuh API key apa pun).
+    """
+    return {"key": settings.GOOGLE_MAPS_API_KEY or None}
+
+
 @app.get("/api/analisis/stream")
 def analisis_stream(
     lokasi: str = Query(..., min_length=1),

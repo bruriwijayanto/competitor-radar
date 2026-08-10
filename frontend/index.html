@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -174,6 +175,20 @@
       </div>
 
       <div class="result-block">
+        <h3><i class="fa-solid fa-map-location-dot"></i> Peta Sebaran Kompetitor</h3>
+        <div class="map-wrap">
+          <div id="competitor-map"></div>
+          <div class="map-legend" id="map-legend">
+            <span class="map-legend__item"><i class="map-dot map-dot--high"></i> Rating ≥ 4.5</span>
+            <span class="map-legend__item"><i class="map-dot map-dot--mid"></i> Rating 3.5–4.4</span>
+            <span class="map-legend__item"><i class="map-dot map-dot--low"></i> Rating &lt; 3.5</span>
+            <span class="map-legend__item map-legend__note" id="map-source-note"></span>
+          </div>
+          <div class="map-selected-info" id="map-selected-info">Klik salah satu titik pada peta untuk melihat detail kompetitor.</div>
+        </div>
+      </div>
+
+      <div class="result-block">
         <h3><i class="fa-solid fa-chart-column"></i> Visualisasi Sentimen per Tema</h3>
         <div class="chart-wrap">
           <canvas id="sentiment-chart"></canvas>
@@ -206,6 +221,7 @@
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

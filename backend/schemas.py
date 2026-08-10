@@ -51,6 +51,8 @@ class KompetitorRaw(BaseModel):
     jumlah_review: int
     rentang_harga: str = Field(..., description="mis. 'Rp15.000 - Rp35.000'")
     ulasan: List[UlasanMentah] = Field(default_factory=list)
+    lat: Optional[float] = Field(None, description="Koordinat lintang (sintetis pada mode mock)")
+    lng: Optional[float] = Field(None, description="Koordinat bujur (sintetis pada mode mock)")
 
 
 class DataCollectorOutput(BaseModel):
@@ -61,6 +63,8 @@ class DataCollectorOutput(BaseModel):
     sumber_data: str = Field(..., description="'mock' atau 'google_places'")
     kompetitor: List[KompetitorRaw]
     total_ulasan_terkumpul: int
+    pusat_lat: Optional[float] = Field(None, description="Koordinat lintang titik pusat pencarian")
+    pusat_lng: Optional[float] = Field(None, description="Koordinat bujur titik pusat pencarian")
 
 
 # ---------------------------------------------------------------------------

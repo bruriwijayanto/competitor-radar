@@ -38,7 +38,9 @@ class DataCollectorAgent:
         return self._run_mock(req)
 
     def _run_mock(self, req: AnalisisRequest) -> DataCollectorOutput:
-        kompetitor = generate_mock_kompetitor(req.lokasi, req.kategori.value, req.top_n)
+        kompetitor, pusat_lat, pusat_lng = generate_mock_kompetitor(
+            req.lokasi, req.kategori.value, req.top_n, req.radius_km
+        )
         total_ulasan = sum(len(k.ulasan) for k in kompetitor)
         return DataCollectorOutput(
             lokasi=req.lokasi,
@@ -47,6 +49,8 @@ class DataCollectorAgent:
             sumber_data="mock",
             kompetitor=kompetitor,
             total_ulasan_terkumpul=total_ulasan,
+            pusat_lat=pusat_lat,
+            pusat_lng=pusat_lng,
         )
 
     def _run_real(self, req: AnalisisRequest) -> DataCollectorOutput:
@@ -88,7 +92,7 @@ class DataCollectorAgent:
                         "https://maps.googleapis.com/maps/api/place/details/json",
                         params={
                             "place_id": place["place_id"],
-                            "fields": "name,formatted_address,rating,user_ratings_total,price_level,reviews",
+                            "fields": "name,formatted_address,rating,user_ratings_total,price_level,reviews,geometry",
                             "key": api_key,
                         },
                     )
@@ -114,6 +118,8 @@ class DataCollectorAgent:
                         if r.get("text")
                     ]
 
+                    detail_loc = detail.get("geometry", {}).get("location", {})
+
                     kompetitor.append(
                         KompetitorRaw(
                             nama=detail.get("name", place.get("name", "Tanpa nama")),
@@ -122,6 +128,8 @@ class DataCollectorAgent:
                             jumlah_review=int(detail.get("user_ratings_total", 0)),
                             rentang_harga=rentang_harga,
                             ulasan=ulasan,
+                            lat=detail_loc.get("lat"),
+                            lng=detail_loc.get("lng"),
                         )
                     )
 
@@ -136,6 +144,8 @@ class DataCollectorAgent:
                 sumber_data="google_places",
                 kompetitor=kompetitor,
                 total_ulasan_terkumpul=total_ulasan,
+                pusat_lat=loc.get("lat"),
+                pusat_lng=loc.get("lng"),
             )
         except Exception:
             # Fallback aman: jika real API gagal (key salah/kuota/dsb), demo tetap jalan pakai mock.
