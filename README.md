@@ -6,30 +6,6 @@ Pengguna memasukkan lokasi & kategori usaha → tiga agent berjalan berurutan (D
 
 Mendukung **10 kategori usaha**: Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym/Fitness, dan Toko Fashion.
 
-## Tampilan Aplikasi
-
-Cuplikan layar mode **real** (Google Places API + LLM sungguhan) — studi kasus usaha "Kopi Kelangan" di Mergangsan, Yogyakarta, kategori Coffee Shop, top-10 kompetitor.
-
-<p align="center">
-  <img src="screenshot/ui_01_form_monitoring.png" width="720" alt="Form Analisis dan Panel Monitoring Agent"><br>
-  <sub>Form Analisis &amp; Panel Monitoring Agent — durasi tiap agent dan payload handoff A2A real-time.</sub>
-</p>
-
-<p align="center">
-  <img src="screenshot/ui_02_peta_kompetitif_a.png" width="720" alt="Ringkasan Eksekutif dan Peta Kompetitif"><br>
-  <sub>Ringkasan Eksekutif &amp; Peta Kompetitif — kompetitor nyata beserta kekuatan/kelemahan.</sub>
-</p>
-
-<p align="center">
-  <img src="screenshot/ui_03_peta_kompetitif_b.png" width="720" alt="Peta Sebaran Kompetitor di Google Maps"><br>
-  <sub>Peta Sebaran Kompetitor di atas Google Maps sungguhan, marker berwarna sesuai rating.</sub>
-</p>
-
-<p align="center">
-  <img src="screenshot/ui_04_peta_sebaran_chart.png" width="720" alt="Visualisasi Sentimen, Gap Analysis, dan Rekomendasi Strategis"><br>
-  <sub>Visualisasi Sentimen per Tema, Gap Analysis, dan Rekomendasi Strategis.</sub>
-</p>
-
 ## Cara Menjalankan
 
 Butuh Python **3.10+**. Tidak butuh API key apa pun untuk mode default (mock).
@@ -231,3 +207,27 @@ curl -s http://127.0.0.1:8000/api/health
 
 curl -N "http://127.0.0.1:8000/api/analisis/stream?lokasi=Dago,%20Bandung&kategori=coffee%20shop&radius_km=2&top_n=5"
 ```
+
+## Tampilan Aplikasi
+
+Cuplikan layar mode **real** (Google Places API + LLM sungguhan) — studi kasus usaha "Kopi Kelangan" di Mergangsan, Yogyakarta, kategori Coffee Shop, top-10 kompetitor.
+
+<p align="center">
+  <img src="screenshot/ui_01_form_monitoring.png" width="720" alt="Form Analisis dan Panel Monitoring Agent"><br>
+  <sub>Form Analisis &amp; Panel Monitoring Agent — durasi tiap agent dan payload handoff A2A real-time.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshot/ui_02_peta_kompetitif_a.png" width="720" alt="Ringkasan Eksekutif dan Peta Kompetitif"><br>
+  <sub>Ringkasan Eksekutif &amp; Peta Kompetitif — kompetitor nyata beserta kekuatan/kelemahan.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshot/ui_03_peta_kompetitif_b.png" width="720" alt="Peta Sebaran Kompetitor di Google Maps"><br>
+  <sub>Peta Sebaran Kompetitor di atas Google Maps sungguhan, marker berwarna sesuai rating.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshot/ui_04_peta_sebaran_chart.png" width="720" alt="Visualisasi Sentimen, Gap Analysis, dan Rekomendasi Strategis"><br>
+  <sub>Visualisasi Sentimen per Tema, Gap Analysis, dan Rekomendasi Strategis.</sub>
+</p>
