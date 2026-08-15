@@ -6,27 +6,24 @@ mengklasifikasi sentimen tiap ulasan, mengekstraksi tema pujian & keluhan
 (harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk), lalu merangkum
 kekuatan & kelemahan tiap kompetitor.
 
-- Mode mock: heuristik rating + keyword matching Bahasa Indonesia (tanpa LLM).
-- Mode real: Agno Agent + LLM lewat OpenRouter dengan output_schema=InsightOutputLLM.
+Agent Agno sungguhan berbasis LLM lewat OpenRouter, dengan `output_schema` Pydantic
+(InsightOutputLLM) supaya hasilnya terstruktur dan tervalidasi.
 
 Output agent ini (InsightOutput) adalah kontrak A2A yang dikonsumsi Agent 3 (Strategy).
 """
 import json
 from collections import Counter
-from typing import Dict, List
+from typing import List
 
 from agno.agent import Agent
+from agno.models.openrouter import OpenRouter
 
 from ..config import settings
 from ..schemas import (
     DataCollectorOutput,
     InsightKompetitor,
-    InsightKompetitorLLM,
     InsightOutput,
     InsightOutputLLM,
-    SentimenLabel,
-    TemaUlasan,
-    UlasanTerklasifikasi,
 )
 
 
@@ -46,24 +43,6 @@ def _agregasi_tema_pasar(insight_kompetitor: List[InsightKompetitor]) -> dict:
             keluhan[t.value] += 1
     return {"pujian": dict(pujian.most_common()), "keluhan": dict(keluhan.most_common())}
 
-TEMA_KEYWORDS: Dict[TemaUlasan, List[str]] = {
-    TemaUlasan.harga: ["harga", "mahal", "murah", "terjangkau", "biaya", "rp"],
-    TemaUlasan.pelayanan: [
-        "pelayanan", "layanan", "pelayan", "kapster", "montir", "dokter", "perawat",
-        "resepsionis", "kasir", "sigap", "komunikatif", "jutek", "ramah", "tanggap", "staff", "karyawan",
-    ],
-    TemaUlasan.kebersihan: [
-        "bersih", "kotor", "higienis", "rapi", "berantakan", "tercecer", "steril", "berserakan", "debu",
-    ],
-    TemaUlasan.lokasi_parkir: [
-        "parkir", "lokasi", "strategis", "gang", "akses", "dekat", "jauh", "macet",
-    ],
-    TemaUlasan.kualitas_produk: [
-        "rasa", "kualitas", "kopi", "menu", "produk", "hasil", "otentik", "awet", "spare part",
-        "alat", "obat", "makanan", "potongan", "racikan", "sambel", "wifi",
-    ],
-}
-
 
 class SentimentInsightAgent:
     name = "Sentiment & Insight Agent"
@@ -71,158 +50,46 @@ class SentimentInsightAgent:
     def __init__(self) -> None:
         self.agent = Agent(
             name=self.name,
+            model=OpenRouter(
+                id=settings.OPENROUTER_MODEL,
+                api_key=settings.OPENROUTER_API_KEY,
+                max_tokens=4096,  # default Agno (1024) gampang membuat JSON kepotong untuk banyak kompetitor
+            ),
             instructions=[
                 "Kamu adalah agent analisis sentimen & insight ulasan pelanggan bisnis lokal di Indonesia.",
                 "Klasifikasikan tiap ulasan sebagai positif/negatif/netral dan identifikasi tema: "
                 "harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk.",
             ],
+            output_schema=InsightOutputLLM,
         )
 
     def run(self, data: DataCollectorOutput) -> InsightOutput:
-        if settings.is_real_mode_requested and settings.has_openrouter_key:
-            hasil = self._run_real(data)
-            if hasil is not None:
-                return hasil
-        return self._run_mock(data)
-
-    # ------------------------------------------------------------------
-    # Mode mock: heuristik rating (sentimen) + keyword scan (tema)
-    # ------------------------------------------------------------------
-
-    def _klasifikasi_sentimen(self, rating: int) -> SentimenLabel:
-        if rating >= 4:
-            return SentimenLabel.positif
-        if rating == 3:
-            return SentimenLabel.netral
-        return SentimenLabel.negatif
-
-    def _ekstraksi_tema(self, teks: str) -> List[TemaUlasan]:
-        teks_lower = teks.lower()
-        tema_ditemukan = []
-        for tema, keywords in TEMA_KEYWORDS.items():
-            if any(kw in teks_lower for kw in keywords):
-                tema_ditemukan.append(tema)
-        return tema_ditemukan
-
-    def _run_mock(self, data: DataCollectorOutput) -> InsightOutput:
-        insight_list: List[InsightKompetitor] = []
-        agregasi_pujian: Counter = Counter()
-        agregasi_keluhan: Counter = Counter()
-        total_ulasan_dianalisis = 0
-
-        for kompetitor in data.kompetitor:
-            ulasan_terklasifikasi: List[UlasanTerklasifikasi] = []
-            counter_sentimen = Counter()
-            tema_pujian_counter: Counter = Counter()
-            tema_keluhan_counter: Counter = Counter()
-
-            for ulasan in kompetitor.ulasan:
-                sentimen = self._klasifikasi_sentimen(ulasan.rating)
-                tema = self._ekstraksi_tema(ulasan.teks)
-                ulasan_terklasifikasi.append(
-                    UlasanTerklasifikasi(teks=ulasan.teks, sentimen=sentimen, tema=tema)
-                )
-                counter_sentimen[sentimen] += 1
-                for t in tema:
-                    if sentimen == SentimenLabel.positif:
-                        tema_pujian_counter[t.value] += 1
-                    elif sentimen == SentimenLabel.negatif:
-                        tema_keluhan_counter[t.value] += 1
-
-            n = len(kompetitor.ulasan) or 1
-            persen_positif = round(counter_sentimen[SentimenLabel.positif] / n * 100, 1)
-            persen_negatif = round(counter_sentimen[SentimenLabel.negatif] / n * 100, 1)
-            persen_netral = round(counter_sentimen[SentimenLabel.netral] / n * 100, 1)
-
-            tema_pujian = [t for t, _ in tema_pujian_counter.most_common(3)]
-            tema_keluhan = [t for t, _ in tema_keluhan_counter.most_common(3)]
-
-            kekuatan = [f"{t.capitalize()} dinilai baik oleh pelanggan" for t in tema_pujian] or [
-                "Belum ada tema pujian yang menonjol dari sampel ulasan"
-            ]
-            kelemahan = [f"{t.capitalize()} masih dikeluhkan pelanggan" for t in tema_keluhan] or [
-                "Belum ada tema keluhan yang menonjol dari sampel ulasan"
-            ]
-
-            agregasi_pujian.update(tema_pujian_counter)
-            agregasi_keluhan.update(tema_keluhan_counter)
-            total_ulasan_dianalisis += len(kompetitor.ulasan)
-
-            insight_list.append(
-                InsightKompetitor(
-                    nama=kompetitor.nama,
-                    rating=kompetitor.rating,
-                    jumlah_review=kompetitor.jumlah_review,
-                    rentang_harga=kompetitor.rentang_harga,
-                    jumlah_ulasan_dianalisis=len(kompetitor.ulasan),
-                    persentase_positif=persen_positif,
-                    persentase_negatif=persen_negatif,
-                    persentase_netral=persen_netral,
-                    tema_pujian=tema_pujian,
-                    tema_keluhan=tema_keluhan,
-                    kekuatan=kekuatan,
-                    kelemahan=kelemahan,
-                    ulasan_terklasifikasi=ulasan_terklasifikasi,
-                )
-            )
-
-        return InsightOutput(
-            lokasi=data.lokasi,
-            kategori=data.kategori,
-            insight_kompetitor=insight_list,
-            ringkasan_tema_pasar={
-                "pujian": dict(agregasi_pujian.most_common()),
-                "keluhan": dict(agregasi_keluhan.most_common()),
-            },
-            total_ulasan_dianalisis=total_ulasan_dianalisis,
+        prompt = (
+            "Analisis sentimen & insight untuk data kompetitor berikut (format JSON DataCollectorOutput). "
+            "Kembalikan hasil sesuai schema InsightOutputLLM, semua teks dalam Bahasa Indonesia.\n\n"
+            f"{data.model_dump_json()}"
         )
+        result = self.agent.run(prompt)
+        content = result.content
+        if isinstance(content, str):
+            parsial = InsightOutputLLM.model_validate(json.loads(content))
+        elif isinstance(content, InsightOutputLLM):
+            parsial = content
+        else:
+            parsial = InsightOutputLLM.model_validate(content)
 
-    # ------------------------------------------------------------------
-    # Mode real: delegasikan analisis ke LLM lewat Agno Agent
-    # ------------------------------------------------------------------
+        # Lengkapi kembali jadi InsightKompetitor penuh (ulasan_terklasifikasi
+        # sengaja kosong karena tidak diminta ke LLM — lihat InsightKompetitorLLM).
+        insight_kompetitor = [
+            InsightKompetitor(**k.model_dump(), ulasan_terklasifikasi=[]) for k in parsial.insight_kompetitor
+        ]
 
-    def _run_real(self, data: DataCollectorOutput):
-        from agno.models.openrouter import OpenRouter
-
-        try:
-            llm_agent = Agent(
-                name=self.name,
-                model=OpenRouter(
-                    id=settings.OPENROUTER_MODEL,
-                    api_key=settings.OPENROUTER_API_KEY,
-                    max_tokens=4096,  # default Agno (1024) gampang membuat JSON kepotong untuk banyak kompetitor
-                ),
-                instructions=self.agent.instructions,
-                output_schema=InsightOutputLLM,
-            )
-            prompt = (
-                "Analisis sentimen & insight untuk data kompetitor berikut (format JSON DataCollectorOutput). "
-                "Kembalikan hasil sesuai schema InsightOutputLLM, semua teks dalam Bahasa Indonesia.\n\n"
-                f"{data.model_dump_json()}"
-            )
-            result = llm_agent.run(prompt)
-            content = result.content
-            if isinstance(content, str):
-                parsial = InsightOutputLLM.model_validate(json.loads(content))
-            elif isinstance(content, InsightOutputLLM):
-                parsial = content
-            else:
-                parsial = InsightOutputLLM.model_validate(content)
-
-            # Lengkapi kembali jadi InsightKompetitor penuh (ulasan_terklasifikasi
-            # sengaja kosong karena tidak diminta ke LLM — lihat InsightKompetitorLLM).
-            insight_kompetitor = [
-                InsightKompetitor(**k.model_dump(), ulasan_terklasifikasi=[]) for k in parsial.insight_kompetitor
-            ]
-
-            # ringkasan_tema_pasar & total_ulasan_dianalisis dihitung di backend, bukan
-            # diminta ke LLM (lihat catatan di schemas.InsightOutputLLM).
-            return InsightOutput(
-                lokasi=parsial.lokasi,
-                kategori=parsial.kategori,
-                insight_kompetitor=insight_kompetitor,
-                ringkasan_tema_pasar=_agregasi_tema_pasar(insight_kompetitor),
-                total_ulasan_dianalisis=sum(k.jumlah_ulasan_dianalisis for k in insight_kompetitor),
-            )
-        except Exception:
-            return None
+        # ringkasan_tema_pasar & total_ulasan_dianalisis dihitung di backend, bukan
+        # diminta ke LLM (lihat catatan di schemas.InsightOutputLLM).
+        return InsightOutput(
+            lokasi=parsial.lokasi,
+            kategori=parsial.kategori,
+            insight_kompetitor=insight_kompetitor,
+            ringkasan_tema_pasar=_agregasi_tema_pasar(insight_kompetitor),
+            total_ulasan_dianalisis=sum(k.jumlah_ulasan_dianalisis for k in insight_kompetitor),
+        )

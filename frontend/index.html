@@ -25,7 +25,7 @@
       </div>
     </div>
     <div class="app-header__mode">
-      <span class="badge badge--mode" id="mode-badge"><i class="fa-solid fa-circle-nodes"></i> memuat mode…</span>
+      <span class="badge badge--mode" id="mode-badge"><i class="fa-solid fa-circle-nodes"></i> memeriksa status…</span>
     </div>
   </header>
 
@@ -144,6 +144,25 @@
         </div>
         <pre id="handoff-preview-json"></pre>
       </div>
+
+      <!-- ===================== HUMAN-IN-THE-LOOP CHECKPOINT ===================== -->
+      <div class="hitl-panel" id="hitl-panel" hidden>
+        <div class="hitl-panel__header">
+          <i class="fa-solid fa-user-check"></i>
+          <span>Menunggu Persetujuan Anda</span>
+        </div>
+        <p class="hitl-panel__desc" id="hitl-panel-desc"></p>
+        <div class="hitl-panel__preview" id="hitl-panel-preview"></div>
+        <div class="hitl-panel__actions">
+          <button type="button" class="btn btn--reject" id="hitl-reject-btn">
+            <i class="fa-solid fa-xmark"></i> Batalkan
+          </button>
+          <button type="button" class="btn btn--approve" id="hitl-approve-btn">
+            <i class="fa-solid fa-check"></i> Setujui &amp; Lanjutkan ke Strategy Agent
+          </button>
+        </div>
+      </div>
+      <!-- =================== /HUMAN-IN-THE-LOOP CHECKPOINT ======================= -->
 
       <div class="log-panel">
         <div class="log-panel__header"><i class="fa-solid fa-terminal"></i> Log Aktivitas</div>

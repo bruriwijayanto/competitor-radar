@@ -8,16 +8,26 @@ agent berikutnya, divalidasi lewat model Pydantic di backend/schemas.py. Titik-t
 handoff (A2A boundary) diberi komentar eksplisit di bawah supaya mudah dijelaskan
 saat presentasi.
 
+Antara Agent 2 dan Agent 3 ada titik HUMAN-IN-THE-LOOP wajib (lihat komentar "HITL
+BOUNDARY" di bawah dan backend/approval_store.py) — pipeline berhenti dan menunggu
+persetujuan manusia sebelum Strategy Agent menyusun rekomendasi akhir.
+
 Generator ini sengaja berupa generator SINKRON (bukan async generator) karena agent
-di mode `real` melakukan panggilan HTTP/LLM yang blocking. Starlette otomatis
-menjalankan generator sinkron yang dikembalikan oleh StreamingResponse di threadpool
-terpisah, sehingga tidak memblokir event loop.
+melakukan panggilan HTTP/LLM/MCP yang blocking, dan HITL menunggu (blocking wait)
+keputusan manusia. Starlette otomatis menjalankan generator sinkron yang dikembalikan
+oleh StreamingResponse di threadpool terpisah, sehingga tidak memblokir event loop
+utama — request lain tetap bisa dilayani selagi satu pipeline menunggu approval.
+
+Tidak ada fallback ke data palsu di mana pun (mode mock sudah dihapus): kalau satu
+agent gagal, pipeline berhenti dan mengirim event `error` yang jelas — guardrail
+"penanganan kegagalan" yang gagal secara terlihat, bukan diam-diam menyesatkan.
 """
 import json
 import time
 from typing import Generator
 
 from .agents import DataCollectorAgent, SentimentInsightAgent, StrategyAgent
+from .approval_store import approval_store
 from .config import settings
 from .schemas import AnalisisRequest, DataCollectorOutput, InsightOutput, LaporanAkhir
 
@@ -86,7 +96,6 @@ def run_pipeline_sse(req: AnalisisRequest) -> Generator[str, None, None]:
             {
                 "pesan": "Pipeline analisis kompetitor dimulai.",
                 "pipeline": PIPELINE_NAMES,
-                "mode": settings.APP_MODE,
                 "request": json.loads(req.model_dump_json()),
             },
         )
@@ -163,6 +172,39 @@ def run_pipeline_sse(req: AnalisisRequest) -> Generator[str, None, None]:
         )
         time.sleep(JEDA_DETIK)
         # ----------------------------------------------------------------------
+
+        # --- HITL BOUNDARY -----------------------------------------------------
+        # Pipeline WAJIB berhenti di sini dan menunggu manusia meninjau hasil Data
+        # Collector + Sentiment Insight sebelum Strategy Agent menyusun rekomendasi
+        # bisnis final. Lihat justifikasi lengkap di backend/approval_store.py.
+        run_id = approval_store.buat()
+        yield _sse(
+            "menunggu_persetujuan",
+            {
+                "run_id": run_id,
+                "pesan": (
+                    "Tinjau data kompetitor & insight sentimen di bawah, lalu setujui untuk "
+                    "melanjutkan ke Strategy Agent (menyusun rekomendasi bisnis final), atau batalkan."
+                ),
+                "timeout_detik": settings.HITL_TIMEOUT_SECONDS,
+                "preview": _preview_insight(insight_out, max_items=len(insight_out.insight_kompetitor)),
+            },
+        )
+
+        keputusan = approval_store.tunggu(run_id, timeout=settings.HITL_TIMEOUT_SECONDS)
+        if keputusan is None:
+            yield _sse(
+                "dibatalkan",
+                {"alasan": f"Tidak ada keputusan manusia dalam {settings.HITL_TIMEOUT_SECONDS}s — pipeline dihentikan otomatis (guardrail timeout HITL)."},
+            )
+            return
+        if not keputusan:
+            yield _sse("dibatalkan", {"alasan": "Pengguna menolak melanjutkan ke Strategy Agent."})
+            return
+
+        yield _sse("disetujui", {"pesan": "Disetujui manusia — melanjutkan ke Strategy Agent."})
+        time.sleep(JEDA_DETIK)
+        # ------------------------------------------------------------------- /HITL
 
         # ==================================================================
         # AGENT 3 — Strategy

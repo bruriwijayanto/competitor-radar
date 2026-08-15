@@ -4,213 +4,115 @@ Agent 1 — Data Collector.
 Tanggung jawab tunggal: mengambil daftar kompetitor + sampel ulasan berdasarkan
 lokasi, kategori, radius, dan top-N yang diminta pengguna.
 
-- Mode mock (default, tanpa API key): pakai backend/mock_data.py.
-- Mode real: panggil Google Maps Places API (butuh GOOGLE_MAPS_API_KEY). Dibatasi
-  backend/rate_limiter.py (cooldown antar-request + kuota harian) supaya biaya tidak
-  lepas kendali; kalau limit tercapai, otomatis fallback ke mock (lihat sumber_data
-  pada output untuk tahu alasannya).
+Agent ini adalah Agno `Agent` sungguhan berbasis LLM (lewat OpenRouter) dengan SATU
+tool yang dihubungkan lewat Model Context Protocol (MCP) — bukan panggilan API
+langsung. Server MCP-nya ada di backend/mcp_server.py, di-spawn sebagai subprocess
+terpisah lewat `agno.tools.mcp.MCPTools` (stdio transport). Agent yang memutuskan
+KAPAN dan BAGAIMANA memanggil tool `cari_kompetitor` — termasuk keputusan untuk
+mencoba ulang dengan radius lebih besar kalau hasil pertama kosong — itulah bukti
+perilaku agentic (menyusun rencana, memilih tool, bertindak) yang tidak dimiliki
+satu panggilan LLM biasa.
 
 Output agent ini (DataCollectorOutput) adalah kontrak A2A yang akan dikonsumsi
 langsung oleh Agent 2 (Sentiment & Insight) — lihat orchestrator.py.
 """
-import logging
+import asyncio
+import json
+import sys
+from pathlib import Path
 
 from agno.agent import Agent
+from agno.models.openrouter import OpenRouter
+from mcp import StdioServerParameters
+from mcp.client.stdio import get_default_environment
+
+from agno.tools.mcp import MCPTools
 
 from ..config import settings
-from ..mock_data import generate_mock_kompetitor
-from ..rate_limiter import google_api_guard
-from ..schemas import AnalisisRequest, DataCollectorOutput
+from ..schemas import AnalisisRequest, DataCollectorOutput, KompetitorRaw
 
-logger = logging.getLogger(__name__)
-
-
-def _ringkas_error_google(exc: Exception) -> str:
-    """Ekstrak pesan error Google API yang ringkas & bisa dibaca dari berbagai tipe exception."""
-    import httpx
-
-    if isinstance(exc, httpx.HTTPStatusError):
-        try:
-            body = exc.response.json()
-            status = body.get("status") or body.get("error", {}).get("status")
-            pesan = body.get("error_message") or body.get("error", {}).get("message")
-            if status or pesan:
-                return f"{status or exc.response.status_code}: {pesan or 'lihat log server'}"
-        except Exception:
-            pass
-        return f"HTTP {exc.response.status_code}"
-    return f"{type(exc).__name__}: {exc}"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class DataCollectorAgent:
     name = "Data Collector Agent"
 
     def __init__(self) -> None:
-        # Agent Agno murni informatif (identitas & instruksi) untuk kebutuhan mode `real`
-        # yang nanti bisa dipakai memanggil tool pencarian tempat via LLM. Untuk mode
-        # mock kita tidak memanggil LLM sama sekali agar tetap 100% jalan tanpa API key.
-        self.agent = Agent(
-            name=self.name,
-            instructions=[
-                "Kamu adalah agent pengumpul data kompetitor bisnis lokal.",
-                "Kembalikan daftar kompetitor beserta rating, jumlah review, rentang harga, dan sampel ulasan.",
-            ],
-        )
+        self.instructions = [
+            "Kamu adalah agent pengumpul data kompetitor bisnis lokal di Indonesia.",
+            "Kamu punya SATU tool bernama `cari_kompetitor` yang mengambil data nyata dari "
+            "Google Maps Places API. Panggil tool itu dengan lokasi, kategori, radius_km, dan "
+            "top_n persis seperti yang diminta pengguna.",
+            "Kalau hasil `kompetitor` dari tool kosong, coba panggil ulang SEKALI dengan "
+            "radius_km yang lebih besar (maksimum 5 km) sebelum menyerah.",
+            "Jangan pernah mengarang atau menghalusinasi data kompetitor — laporkan hanya "
+            "hasil yang benar-benar dikembalikan oleh tool.",
+        ]
 
     def run(self, req: AnalisisRequest) -> DataCollectorOutput:
-        if settings.is_real_mode_requested and settings.has_google_key:
-            return self._run_real(req)
-        return self._run_mock(req)
+        return asyncio.run(self._run_async(req))
 
-    def _run_mock(self, req: AnalisisRequest) -> DataCollectorOutput:
-        kompetitor, pusat_lat, pusat_lng = generate_mock_kompetitor(
-            req.lokasi, req.kategori.value, req.top_n, req.radius_km
+    async def _run_async(self, req: AnalisisRequest) -> DataCollectorOutput:
+        env = {
+            **get_default_environment(),
+            "GOOGLE_MAPS_API_KEY": settings.GOOGLE_MAPS_API_KEY,
+            "GOOGLE_API_DAILY_LIMIT": str(settings.GOOGLE_API_DAILY_LIMIT),
+            "GOOGLE_API_MIN_INTERVAL_SECONDS": str(settings.GOOGLE_API_MIN_INTERVAL_SECONDS),
+        }
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "backend.mcp_server"],
+            env=env,
+            cwd=str(PROJECT_ROOT),
         )
-        total_ulasan = sum(len(k.ulasan) for k in kompetitor)
+
+        async with MCPTools(server_params=server_params, transport="stdio") as mcp_tools:
+            agent = Agent(
+                name=self.name,
+                model=OpenRouter(id=settings.OPENROUTER_MODEL, api_key=settings.OPENROUTER_API_KEY, max_tokens=1024),
+                tools=[mcp_tools],
+                instructions=self.instructions,
+            )
+            prompt = (
+                f"Cari kompetitor kategori '{req.kategori.value}' di sekitar '{req.lokasi}', "
+                f"radius awal {req.radius_km} km, ambil {req.top_n} kompetitor teratas. "
+                "Gunakan tool cari_kompetitor untuk ini."
+            )
+            result = await agent.arun(prompt)
+
+        tool_dict = self._ekstrak_hasil_tool(result)
+
+        kompetitor = [KompetitorRaw(**k) for k in tool_dict["kompetitor"]]
         return DataCollectorOutput(
             lokasi=req.lokasi,
             kategori=req.kategori.value,
             radius_km=req.radius_km,
-            sumber_data="mock",
+            sumber_data=tool_dict.get("sumber_data", "google_places"),
             kompetitor=kompetitor,
-            total_ulasan_terkumpul=total_ulasan,
-            pusat_lat=pusat_lat,
-            pusat_lng=pusat_lng,
+            total_ulasan_terkumpul=tool_dict.get("total_ulasan_terkumpul", sum(len(k.ulasan) for k in kompetitor)),
+            pusat_lat=tool_dict.get("pusat_lat"),
+            pusat_lng=tool_dict.get("pusat_lng"),
         )
 
-    def _run_real(self, req: AnalisisRequest) -> DataCollectorOutput:
-        """Ambil data kompetitor nyata dari Google Maps Places API (Nearby Search + Place Details)."""
-        import httpx
+    def _ekstrak_hasil_tool(self, result) -> dict:
+        """Ambil hasil panggilan tool `cari_kompetitor` TERAKHIR yang sukses dari run
+        agent — dipakai apa adanya (bukan hasil tulis-ulang LLM) supaya angka rating/
+        jumlah review/koordinat presisi sama dengan yang dikembalikan Google API,
+        tidak rawan salah transkripsi oleh model bahasa."""
+        eksekusi_tool = list(result.tools or [])
+        error_terakhir = None
+        for eksekusi in reversed(eksekusi_tool):
+            if "cari_kompetitor" not in (eksekusi.tool_name or ""):
+                continue
+            if eksekusi.tool_call_error:
+                error_terakhir = eksekusi.result
+                continue
+            try:
+                return json.loads(eksekusi.result)
+            except (json.JSONDecodeError, TypeError) as exc:
+                error_terakhir = f"Gagal parse hasil tool: {exc}"
 
-        from ..schemas import KompetitorRaw, UlasanMentah
-
-        # --- Pengaman biaya: cooldown & kuota harian (lihat backend/rate_limiter.py) ---
-        if not google_api_guard.cek_cooldown():
-            hasil = self._run_mock(req)
-            jeda = settings.GOOGLE_API_MIN_INTERVAL_SECONDS
-            hasil.sumber_data = f"mock (cooldown {jeda:.0f}s belum lewat sejak request Google API terakhir)"
-            return hasil
-
-        # Perkiraan panggilan: 1 geocode + 1 nearby search + top_n place details.
-        perkiraan_panggilan = 2 + req.top_n
-        if not google_api_guard.cek_kuota(perkiraan_panggilan):
-            status = google_api_guard.status()
-            hasil = self._run_mock(req)
-            hasil.sumber_data = (
-                f"mock (kuota Google API harian tercapai: {status['dipakai_hari_ini']}/{status['batas_harian']})"
-            )
-            return hasil
-        # --------------------------------------------------------------------------------
-
-        api_key = settings.GOOGLE_MAPS_API_KEY
-        radius_m = int(req.radius_km * 1000)
-
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                geocode_resp = client.get(
-                    "https://maps.googleapis.com/maps/api/geocode/json",
-                    params={"address": req.lokasi, "key": api_key},
-                )
-                geocode_resp.raise_for_status()
-                google_api_guard.catat_panggilan()
-                geo = geocode_resp.json()
-                # Google Geocoding/Places API sering balas HTTP 200 walau gagal — status &
-                # pesan errornya ada di body JSON, bukan di status code, jadi raise_for_status()
-                # saja tidak cukup untuk mendeteksi key salah/API belum aktif/billing, dll.
-                if geo.get("status") not in ("OK",):
-                    raise ValueError(
-                        f"Geocoding API: {geo.get('status')} — {geo.get('error_message', 'lihat dokumentasi Google')}"
-                    )
-                loc = geo["results"][0]["geometry"]["location"]
-
-                nearby_resp = client.get(
-                    "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
-                    params={
-                        "location": f"{loc['lat']},{loc['lng']}",
-                        "radius": radius_m,
-                        "keyword": req.kategori.value,
-                        "key": api_key,
-                    },
-                )
-                nearby_resp.raise_for_status()
-                google_api_guard.catat_panggilan()
-                nearby_json = nearby_resp.json()
-                if nearby_json.get("status") not in ("OK", "ZERO_RESULTS"):
-                    raise ValueError(
-                        f"Places Nearby Search: {nearby_json.get('status')} — "
-                        f"{nearby_json.get('error_message', 'lihat dokumentasi Google')}"
-                    )
-                places = nearby_json.get("results", [])[: req.top_n]
-
-                kompetitor: list[KompetitorRaw] = []
-                for place in places:
-                    detail_resp = client.get(
-                        "https://maps.googleapis.com/maps/api/place/details/json",
-                        params={
-                            "place_id": place["place_id"],
-                            "fields": "name,formatted_address,rating,user_ratings_total,price_level,reviews,geometry",
-                            "key": api_key,
-                        },
-                    )
-                    detail_resp.raise_for_status()
-                    google_api_guard.catat_panggilan()
-                    detail = detail_resp.json().get("result", {})
-
-                    price_level = detail.get("price_level")
-                    rentang_harga = {
-                        0: "Sangat murah",
-                        1: "Rp10.000 - Rp30.000",
-                        2: "Rp30.000 - Rp75.000",
-                        3: "Rp75.000 - Rp200.000",
-                        4: "Rp200.000+",
-                    }.get(price_level, "Tidak diketahui")
-
-                    ulasan = [
-                        UlasanMentah(
-                            teks=r.get("text", ""),
-                            rating=int(r.get("rating", 3)),
-                            penulis=r.get("author_name"),
-                        )
-                        for r in detail.get("reviews", [])[:5]
-                        if r.get("text")
-                    ]
-
-                    detail_loc = detail.get("geometry", {}).get("location", {})
-
-                    kompetitor.append(
-                        KompetitorRaw(
-                            nama=detail.get("name", place.get("name", "Tanpa nama")),
-                            alamat=detail.get("formatted_address", place.get("vicinity", "-")),
-                            rating=float(detail.get("rating", 0.0)),
-                            jumlah_review=int(detail.get("user_ratings_total", 0)),
-                            rentang_harga=rentang_harga,
-                            ulasan=ulasan,
-                            lat=detail_loc.get("lat"),
-                            lng=detail_loc.get("lng"),
-                            place_id=place.get("place_id"),
-                        )
-                    )
-
-            if not kompetitor:
-                raise ValueError("Tidak ada kompetitor ditemukan dari Google Places API")
-
-            total_ulasan = sum(len(k.ulasan) for k in kompetitor)
-            return DataCollectorOutput(
-                lokasi=req.lokasi,
-                kategori=req.kategori.value,
-                radius_km=req.radius_km,
-                sumber_data="google_places",
-                kompetitor=kompetitor,
-                total_ulasan_terkumpul=total_ulasan,
-                pusat_lat=loc.get("lat"),
-                pusat_lng=loc.get("lng"),
-            )
-        except Exception as exc:
-            # Fallback aman: jika real API gagal (key salah/API belum aktif/billing/dsb), demo tetap
-            # jalan pakai mock. Alasannya dicatat ke log server DAN diselipkan ke sumber_data supaya
-            # langsung kelihatan di panel log UI — tidak silent, biar gampang didiagnosis.
-            alasan = _ringkas_error_google(exc)
-            logger.warning("Google Places API gagal, fallback ke mock: %s", alasan)
-            hasil = self._run_mock(req)
-            hasil.sumber_data = f"mock (Google API gagal: {alasan})"
-            return hasil
+        raise RuntimeError(
+            "Data Collector Agent tidak berhasil mendapatkan data kompetitor dari tool "
+            f"`cari_kompetitor`. Detail: {error_terakhir or 'tool tidak pernah dipanggil oleh agent'}"
+        )

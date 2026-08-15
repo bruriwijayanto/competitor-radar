@@ -4,15 +4,28 @@ analisis kompetitor. Dijalankan satu proses saja: `uvicorn backend.main:app`.
 """
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .approval_store import approval_store
 from .config import settings
 from .orchestrator import run_pipeline_sse
-from .rate_limiter import google_api_guard
-from .schemas import AnalisisRequest, KategoriUsaha
+from .rate_limiter import GoogleApiGuard
+from .schemas import AnalisisRequest, KategoriUsaha, KeputusanHITL
+
+# Guardrail konfigurasi: tolak start kalau key wajib belum diisi (fail fast, pesan jelas)
+# daripada aplikasi jalan lalu gagal misterius di tengah pipeline demo.
+settings.validasi_atau_gagal()
+
+# Guard kuota Google API dibaca di sini hanya untuk keperluan monitoring (/api/health).
+# Penegakannya sendiri terjadi di dalam backend/mcp_server.py — lihat komentar di sana.
+# State-nya file-based (bukan in-memory) jadi tetap akurat meski dibaca dari proses lain.
+_google_api_guard = GoogleApiGuard(
+    daily_limit=settings.GOOGLE_API_DAILY_LIMIT,
+    min_interval_seconds=settings.GOOGLE_API_MIN_INTERVAL_SECONDS,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -34,21 +47,19 @@ app.add_middleware(
 def health():
     return {
         "status": "ok",
-        "mode": settings.APP_MODE,
         "google_maps_key_terpasang": settings.has_google_key,
         "openrouter_key_terpasang": settings.has_openrouter_key,
-        "google_api_kuota": google_api_guard.status(),
+        "google_api_kuota": _google_api_guard.status(),
     }
 
 
 @app.get("/api/maps-key")
 def maps_key():
     """
-    Ekspos Google Maps JavaScript API key (jika diset) supaya frontend bisa merender
-    peta sungguhan. Key Maps JS memang didesain untuk dipakai di sisi client dan
+    Ekspos Google Maps JavaScript API key supaya frontend bisa merender peta
+    sungguhan. Key Maps JS memang didesain untuk dipakai di sisi client dan
     dibatasi lewat HTTP referrer restriction di Google Cloud Console — bukan secret
-    server seperti key REST lain. Jika key tidak diset, frontend otomatis memakai
-    Leaflet.js + OpenStreetMap (gratis, tanpa API key apa pun).
+    server seperti key REST lain.
     """
     return {"key": settings.GOOGLE_MAPS_API_KEY or None}
 
@@ -78,6 +89,20 @@ def analisis_stream(
             "X-Accel-Buffering": "no",  # jaga-jaga di belakang reverse proxy nginx
         },
     )
+
+
+@app.post("/api/analisis/{run_id}/keputusan")
+def keputusan_hitl(run_id: str, keputusan: KeputusanHITL):
+    """
+    Endpoint human-in-the-loop: dipanggil frontend saat pengguna menekan tombol
+    Setujui/Batalkan pada titik pemeriksaan antara Sentiment Insight Agent dan
+    Strategy Agent (lihat "HITL BOUNDARY" di backend/orchestrator.py). Membangunkan
+    generator SSE yang sedang menunggu (threading.Event) di backend/approval_store.py.
+    """
+    ok = approval_store.putuskan(run_id, keputusan.disetujui)
+    if not ok:
+        raise HTTPException(status_code=404, detail="run_id tidak ditemukan atau sudah kedaluwarsa/selesai")
+    return {"status": "ok"}
 
 
 # Mount frontend PALING TERAKHIR supaya tidak menimpa route /api/*.

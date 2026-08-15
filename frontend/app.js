@@ -13,6 +13,7 @@ $(function () {
   };
 
   let eventSource = null;
+  let currentRunId = null;
   let sentimentChart = null;
   let googleMap = null;
   let googleMapsLoadPromise = null;
@@ -46,19 +47,19 @@ $(function () {
     $.getJSON("/api/health")
       .done((res) => {
         const $badge = $("#mode-badge");
-        if (res.mode === "real") {
+        if (res.google_maps_key_terpasang && res.openrouter_key_terpasang) {
           $badge
             .removeClass("mode--mock")
             .addClass("mode--real")
-            .html('<i class="fa-solid fa-plug-circle-check"></i> Mode REAL (Google Places + LLM)');
+            .html('<i class="fa-solid fa-plug-circle-check"></i> Agentic • MCP (Google Places) • LLM (OpenRouter)');
         } else {
           $badge
             .removeClass("mode--real")
             .addClass("mode--mock")
-            .html('<i class="fa-solid fa-flask"></i> Mode MOCK (tanpa API key)');
+            .html('<i class="fa-solid fa-triangle-exclamation"></i> Konfigurasi API key belum lengkap');
         }
       })
-      .fail(() => $("#mode-badge").text("Mode tidak diketahui"));
+      .fail(() => $("#mode-badge").text("Status tidak diketahui"));
   }
 
   // ---------------------------------------------------------------- form controls
@@ -102,6 +103,8 @@ $(function () {
     $("#monitor-subtitle").text("Menghubungkan ke pipeline…");
     $("#log-area").empty();
     $("#handoff-preview").prop("hidden", true);
+    $("#hitl-panel").prop("hidden", true);
+    currentRunId = null;
     resetAgentNodes();
 
     $("html, body").animate({ scrollTop: $("#monitoring-section").offset().top - 20 }, 400);
@@ -150,6 +153,38 @@ $(function () {
     });
     // ================================================================== /A2A
 
+    // =====================================================================
+    // HUMAN-IN-THE-LOOP: pipeline berhenti di sini menunggu persetujuan
+    // manusia sebelum Strategy Agent menyusun rekomendasi bisnis final.
+    // =====================================================================
+    eventSource.addEventListener("menunggu_persetujuan", (e) => {
+      const data = JSON.parse(e.data);
+      currentRunId = data.run_id;
+      appendLog("handoff", null, `<b>Menunggu persetujuan manusia</b> sebelum lanjut ke Strategy Agent (batas ${data.timeout_detik}s).`);
+      $("#monitor-subtitle").text("Pipeline dijeda — menunggu keputusan Anda.");
+      renderHitlPreview(data.preview);
+      $("#hitl-panel-desc").text(data.pesan);
+      $("#hitl-panel").prop("hidden", false).hide().fadeIn(200);
+      $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", false);
+      $("html, body").animate({ scrollTop: $("#hitl-panel").offset().top - 20 }, 400);
+    });
+
+    eventSource.addEventListener("disetujui", (e) => {
+      const data = JSON.parse(e.data);
+      $("#hitl-panel").fadeOut(200, function () { $(this).prop("hidden", true); });
+      appendLog("done", null, data.pesan);
+    });
+
+    eventSource.addEventListener("dibatalkan", (e) => {
+      const data = JSON.parse(e.data);
+      $("#hitl-panel").fadeOut(200, function () { $(this).prop("hidden", true); });
+      appendLog("error", null, `Pipeline dibatalkan: ${data.alasan}`);
+      $("#monitor-subtitle").text("Pipeline dibatalkan.");
+      finishSubmitButton();
+      if (eventSource) eventSource.close();
+    });
+    // ================================================================== /HITL
+
     eventSource.addEventListener("complete", (e) => {
       const laporan = JSON.parse(e.data);
       appendLog("complete", null, "Pipeline selesai. Laporan akhir siap ditampilkan.");
@@ -174,6 +209,38 @@ $(function () {
   function finishSubmitButton() {
     $("#submit-btn").prop("disabled", false).html('<i class="fa-solid fa-play"></i> Jalankan Analisis');
   }
+
+  // ---------------------------------------------------------------- human-in-the-loop
+
+  function renderHitlPreview(preview) {
+    const $box = $("#hitl-panel-preview").empty();
+    (preview.contoh_insight_kompetitor || []).forEach((k) => {
+      $box.append(`
+        <div class="hitl-preview-row">
+          <span class="hitl-preview-row__name">${k.nama}</span>
+          <span class="hitl-preview-row__stat"><i class="fa-solid fa-thumbs-up" style="color:var(--green)"></i> ${k.persentase_positif}%</span>
+          <span class="hitl-preview-row__stat"><i class="fa-solid fa-thumbs-down" style="color:var(--red)"></i> ${k.persentase_negatif}%</span>
+        </div>
+      `);
+    });
+  }
+
+  function kirimKeputusanHitl(disetujui) {
+    if (!currentRunId) return;
+    $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", true);
+    $.ajax({
+      url: `/api/analisis/${currentRunId}/keputusan`,
+      method: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ disetujui }),
+    }).fail(() => {
+      appendLog("error", null, "Gagal mengirim keputusan ke server. Coba lagi.");
+      $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", false);
+    });
+  }
+
+  $("#hitl-approve-btn").on("click", () => kirimKeputusanHitl(true));
+  $("#hitl-reject-btn").on("click", () => kirimKeputusanHitl(false));
 
   // ---------------------------------------------------------------- agent node state
 
@@ -290,8 +357,8 @@ $(function () {
   // ---------------------------------------------------------------- peta sebaran kompetitor
 
   // Tautan ke halaman Google Maps (termasuk ulasannya) untuk satu kompetitor.
-  // Kalau place_id tersedia (mode real), tautannya presisi langsung ke tempatnya;
-  // kalau tidak (mode mock, tanpa place_id sungguhan), fallback ke pencarian nama+alamat.
+  // place_id selalu tersedia (data selalu dari Google Places), fallback pencarian
+  // nama+alamat cuma jaga-jaga kalau field itu kosong.
   function googleMapsUrl(k) {
     if (k.place_id) {
       return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(k.place_id)}`;

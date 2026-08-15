@@ -11,7 +11,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .guardrails import MAKS_PANJANG_LOKASI, MAKS_PANJANG_NAMA_USAHA, bersihkan_input_teks
 
 
 # ---------------------------------------------------------------------------
@@ -33,10 +35,25 @@ class KategoriUsaha(str, Enum):
 
 class AnalisisRequest(BaseModel):
     nama_usaha: Optional[str] = Field(None, description="Nama usaha pengguna (opsional)")
-    lokasi: str = Field(..., description="Lokasi/area yang dianalisis, mis. 'Dago, Bandung'")
+    lokasi: str = Field(..., min_length=1, description="Lokasi/area yang dianalisis, mis. 'Dago, Bandung'")
     kategori: KategoriUsaha = Field(..., description="Kategori usaha yang dianalisis")
     radius_km: float = Field(2.0, ge=1, le=5, description="Radius pencarian kompetitor (km)")
-    top_n: int = Field(5, description="Jumlah kompetitor teratas yang dianalisis (5 atau 10)")
+    top_n: int = Field(5, ge=1, le=10, description="Jumlah kompetitor teratas yang dianalisis (5 atau 10)")
+
+    # --- Guardrail input: bersihkan teks bebas sebelum diselipkan ke prompt LLM
+    # manapun di sepanjang pipeline (lihat backend/guardrails.py). ---
+    @field_validator("lokasi")
+    @classmethod
+    def _bersihkan_lokasi(cls, v: str) -> str:
+        bersih = bersihkan_input_teks(v, MAKS_PANJANG_LOKASI)
+        if not bersih:
+            raise ValueError("lokasi tidak boleh kosong setelah dibersihkan")
+        return bersih
+
+    @field_validator("nama_usaha")
+    @classmethod
+    def _bersihkan_nama_usaha(cls, v: Optional[str]) -> Optional[str]:
+        return bersihkan_input_teks(v, MAKS_PANJANG_NAMA_USAHA)
 
 
 # ---------------------------------------------------------------------------
@@ -56,9 +73,9 @@ class KompetitorRaw(BaseModel):
     jumlah_review: int
     rentang_harga: str = Field(..., description="mis. 'Rp15.000 - Rp35.000'")
     ulasan: List[UlasanMentah] = Field(default_factory=list)
-    lat: Optional[float] = Field(None, description="Koordinat lintang (sintetis pada mode mock)")
-    lng: Optional[float] = Field(None, description="Koordinat bujur (sintetis pada mode mock)")
-    place_id: Optional[str] = Field(None, description="Google Place ID (hanya terisi pada mode real)")
+    lat: Optional[float] = Field(None, description="Koordinat lintang dari Google Places")
+    lng: Optional[float] = Field(None, description="Koordinat bujur dari Google Places")
+    place_id: Optional[str] = Field(None, description="Google Place ID")
 
 
 class DataCollectorOutput(BaseModel):
@@ -66,7 +83,7 @@ class DataCollectorOutput(BaseModel):
     lokasi: str
     kategori: str
     radius_km: float
-    sumber_data: str = Field(..., description="'mock' atau 'google_places'")
+    sumber_data: str = Field(..., description="Selalu 'google_places' — lihat backend/mcp_server.py")
     kompetitor: List[KompetitorRaw]
     total_ulasan_terkumpul: int
     pusat_lat: Optional[float] = Field(None, description="Koordinat lintang titik pusat pencarian")
@@ -198,3 +215,12 @@ class LaporanAkhir(BaseModel):
     data_collector: DataCollectorOutput
     insight: InsightOutput
     strategi: StrategyOutput
+
+
+# ---------------------------------------------------------------------------
+# Human-in-the-loop — keputusan manusia sebelum Strategy Agent dijalankan
+# ---------------------------------------------------------------------------
+
+class KeputusanHITL(BaseModel):
+    disetujui: bool = Field(..., description="True = lanjut ke Strategy Agent, False = batalkan pipeline")
+    catatan: Optional[str] = Field(None, max_length=200)
