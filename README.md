@@ -4,7 +4,7 @@ Sistem intelijen kompetitor bisnis lokal berbasis **multi-agent AI**. Proyek dem
 
 Pengguna memasukkan lokasi & kategori usaha → tiga agent berjalan berurutan (Data Collector → Sentiment & Insight → **[titik persetujuan manusia]** → Strategy) → hasil berupa peta kompetitif, peta sebaran lokasi, analisis sentimen, gap analysis, dan rekomendasi strategis.
 
-Mendukung **11 kategori usaha**: Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym/Fitness, Toko Fashion, dan Software Developer.
+Kategori usaha bersifat **dinamis dan dapat dikonfigurasi** (bukan hardcode di logika agen) — cakupan saat ini meliputi Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym/Fitness, Toko Fashion, hingga Software Developer.
 
 Data Collector Agent mengambil data kompetitor sungguhan lewat sebuah **MCP server** yang membungkus Google Maps Places API; Sentiment & Strategy Agent memakai LLM sungguhan lewat OpenRouter. `GOOGLE_MAPS_API_KEY` dan `OPENROUTER_API_KEY` **wajib** diisi sebelum aplikasi bisa start.
 
@@ -176,7 +176,7 @@ Untuk demo UTS dengan beberapa kali run manual, ketiga lapis ini (app-level limi
 
 Dikumpulkan & didokumentasikan terpusat di `backend/guardrails.py`:
 
-1. **Validasi & pembatasan ruang lingkup input** — kategori usaha dibatasi `Enum` whitelist (11 kategori), `radius_km`/`top_n` dibatasi rentang di `backend/schemas.py`.
+1. **Validasi & pembatasan ruang lingkup input** — kategori usaha dibatasi `Enum` whitelist yang dapat dikonfigurasi (bukan teks bebas), `radius_km`/`top_n` dibatasi rentang di `backend/schemas.py`.
 2. **Anti prompt-injection** — teks bebas dari pengguna (`lokasi`, `nama_usaha`) dibersihkan (`bersihkan_input_teks`) sebelum diselipkan ke prompt LLM manapun di sepanjang pipeline.
 3. **Guardrail biaya/kuota Google API** — lihat bagian di atas.
 4. **Penanganan kegagalan** — tidak ada fallback ke data palsu; kegagalan agent manapun menghentikan pipeline dan mengirim event `error` yang jelas ke frontend.
@@ -216,13 +216,13 @@ requirements.txt
 3. **Radius pencarian** dibatasi 1–5 km sesuai spesifikasi slider; Data Collector Agent boleh mencoba radius lebih besar (maks. 5 km) sendiri kalau pencarian pertama kosong.
 4. **MCP lewat stdio transport** (subprocess `python -m backend.mcp_server` di-spawn per pipeline run oleh `MCPTools`) — dipilih ketimbang HTTP/SSE server MCP yang berjalan terus-menerus karena orchestrator sudah didesain sebagai generator sinkron yang jalan di threadpool (lihat komentar di `orchestrator.py`); spawn-per-request menghindari kebutuhan menjembatani event loop async yang persisten dengan thread worker sinkron.
 5. **OpenRouter** dipakai sebagai provider LLM via Agno `OpenRouter` model — satu API key bisa mengakses banyak model/provider berbeda (termasuk model gratis), praktis untuk demo. Provider lain bisa ditambahkan dengan mengganti `agno.models.openrouter.OpenRouter` di agent manapun.
-6. **Skema LLM dipisah dari skema penuh** (`InsightOutputLLM`/`InsightKompetitorLLM` vs `InsightOutput`/`InsightKompetitor` di `schemas.py`). Alasan: (a) *structured output* ketat OpenAI/OpenRouter tidak mendukung field `dict` generik tanpa properti tetap, jadi field agregat (`ringkasan_tema_pasar`, `total_ulasan_dianalisis`) dihitung ulang di backend, bukan diminta ke LLM; (b) field `ulasan_terklasifikasi` (echo tiap ulasan individual) sengaja tidak diminta ke LLM karena boros token dan berisiko membuat respons JSON terpotong. `tema_pujian`/`tema_keluhan` memakai enum `TemaUlasan` baku (bukan string bebas) berisi **5 tema sentimen standar** (harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk) — berlaku untuk semua kategori usaha. (Jangan tertukar dengan **11 kategori usaha** yang berbeda konsep.)
+6. **Skema LLM dipisah dari skema penuh** (`InsightOutputLLM`/`InsightKompetitorLLM` vs `InsightOutput`/`InsightKompetitor` di `schemas.py`). Alasan: (a) *structured output* ketat OpenAI/OpenRouter tidak mendukung field `dict` generik tanpa properti tetap, jadi field agregat (`ringkasan_tema_pasar`, `total_ulasan_dianalisis`) dihitung ulang di backend, bukan diminta ke LLM; (b) field `ulasan_terklasifikasi` (echo tiap ulasan individual) sengaja tidak diminta ke LLM karena boros token dan berisiko membuat respons JSON terpotong. `tema_pujian`/`tema_keluhan` memakai enum `TemaUlasan` baku (bukan string bebas) berisi **5 tema sentimen standar** (harga, pelayanan, kebersihan, lokasi/parkir, kualitas produk) — berlaku untuk semua kategori usaha. (Jangan tertukar dengan **cakupan kategori usaha** yang dapat dikonfigurasi — konsep yang berbeda, lihat poin 12.)
 7. **Hasil tool MCP dipakai apa adanya, bukan hasil tulis-ulang LLM** — `DataCollectorAgent._ekstrak_hasil_tool` mengambil hasil panggilan tool `cari_kompetitor` langsung dari `RunOutput.tools`, bukan meminta LLM meng-echo ulang lewat `output_schema`. Alasan: angka rating/jumlah review/koordinat presisi harus sama persis dengan yang dikembalikan Google API, tidak boleh rawan salah transkripsi oleh model bahasa saat datanya besar.
 8. **Memory Strategy Agent** memakai `agno.db.json.JsonDb` (file JSON, tanpa dependency database berat seperti SQLAlchemy/SQLite) — cukup untuk skala demo, dan tetap mendemonstrasikan konsep *session/history* Agno secara nyata (persisten lintas restart server, bukan cuma in-memory).
 9. **Tanpa autentikasi** — aplikasi diasumsikan dijalankan lokal untuk keperluan presentasi/demo, bukan diekspos ke publik.
 10. Delay kecil (~0.5 detik) disisipkan antar-event SSE non-blocking di `orchestrator.py` supaya panel monitoring terasa "hidup" saat presentasi.
 11. **Google Maps JavaScript API key di-reuse dari `GOOGLE_MAPS_API_KEY`** yang sama dipakai untuk Places API, dan diekspos ke frontend lewat endpoint `/api/maps-key`. Ini sesuai praktik umum Google — Maps JS key memang didesain dipakai di sisi client (dibatasi lewat HTTP referrer restriction di Google Cloud Console), berbeda dari key REST/server yang harus dirahasiakan.
-12. **11 kategori usaha** didukung (`KategoriUsaha` di `schemas.py`): Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym, Toko Fashion, Software Developer. Menambah kategori baru butuh dua tempat: entri baru di `KategoriUsaha` (`backend/schemas.py`) dan opsi baru di dropdown (`frontend/index.html`) — tidak ada tempat lain yang perlu disentuh karena `kategori.value` langsung dipakai sebagai keyword pencarian ke Google Places API lewat tool MCP.
+12. **Kategori usaha dinamis/dapat dikonfigurasi** (`KategoriUsaha` di `schemas.py`), saat ini mencakup: Coffee Shop, Restoran, Salon, Bengkel, Klinik, Laundry, Apotek, Minimarket, Gym, Toko Fashion, Software Developer. Menambah kategori baru butuh dua tempat: entri baru di `KategoriUsaha` (`backend/schemas.py`) dan opsi baru di dropdown (`frontend/index.html`) — tidak ada tempat lain yang perlu disentuh karena `kategori.value` langsung dipakai sebagai keyword pencarian ke Google Places API lewat tool MCP.
 
 ## Menguji Cepat via curl
 
@@ -240,26 +240,34 @@ curl -X POST http://127.0.0.1:8000/api/analisis/<run_id>/keputusan \
 
 ## Tampilan Aplikasi
 
-Cuplikan layar — studi kasus usaha "Kopi Kelangan" di Mergangsan, Yogyakarta, kategori Coffee Shop, top-10 kompetitor.
+Cuplikan layar dari eksekusi nyata (Google Places API + LLM sungguhan, tanpa data sintetis) — studi kasus usaha "Kopi Kita" di Dago, Bandung, kategori Coffee Shop, radius 2 km, top-5 kompetitor. Skenario dan data yang sama dipakai di laporan tertulis (Bagian 6 — Hasil Uji Coba).
 
 <p align="center">
-  <img src="screenshot/ui_01_form_monitoring.png" width="720" alt="Form Analisis dan Panel Monitoring Agent"><br>
-  <sub>Form Analisis &amp; Panel Monitoring Agent — durasi tiap agent dan payload handoff A2A real-time.</sub>
+  <img src="screenshot/ui_01_form.png" width="500" alt="Form Analisis"><br>
+  <sub>Form Analisis — badge header menunjukkan status Agentic/MCP/LLM aktif.</sub>
 </p>
 
 <p align="center">
-  <img src="screenshot/ui_02_peta_kompetitif_a.png" width="720" alt="Ringkasan Eksekutif dan Peta Kompetitif"><br>
-  <sub>Ringkasan Eksekutif &amp; Peta Kompetitif — kompetitor nyata beserta kekuatan/kelemahan.</sub>
+  <img src="screenshot/ui_01b_monitoring.png" width="600" alt="Panel Monitoring Agent"><br>
+  <sub>Panel Monitoring Agent pada akhir pipeline — status SELESAI tiap agent, durasi, dan payload handoff A2A yang benar-benar dioper.</sub>
 </p>
 
 <p align="center">
-  <img src="screenshot/ui_03_peta_kompetitif_b.png" width="720" alt="Peta Sebaran Kompetitor di Google Maps"><br>
+  <img src="screenshot/ui_01c_hitl.png" width="600" alt="Panel Human-in-the-Loop"><br>
+  <sub>Titik Human-in-the-Loop — kurasi kompetitor lewat checkbox sebelum Strategy Agent dijalankan.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshot/ui_02_ringkasan_kompetitif.png" width="720" alt="Ringkasan Eksekutif dan Peta Kompetitif"><br>
+  <sub>Ringkasan Eksekutif &amp; Peta Kompetitif — perhatikan kalimat pembuka yang membandingkan dengan analisis sebelumnya, bukti memory Strategy Agent bekerja.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshot/ui_03_peta.png" width="720" alt="Peta Sebaran Kompetitor di Google Maps"><br>
   <sub>Peta Sebaran Kompetitor di atas Google Maps sungguhan, marker berwarna sesuai rating.</sub>
 </p>
 
 <p align="center">
-  <img src="screenshot/ui_04_peta_sebaran_chart.png" width="720" alt="Visualisasi Sentimen, Gap Analysis, dan Rekomendasi Strategis"><br>
+  <img src="screenshot/ui_04_sentimen_gap_rekomendasi.png" width="720" alt="Visualisasi Sentimen, Gap Analysis, dan Rekomendasi Strategis"><br>
   <sub>Visualisasi Sentimen per Tema, Gap Analysis, dan Rekomendasi Strategis.</sub>
 </p>
-
-> Catatan: tangkapan layar di atas dari versi sebelum penambahan MCP server, panel human-in-the-loop, dan memory — alur inti (form → monitoring agent → hasil) tidak berubah, hanya ada panel persetujuan tambahan di antara Sentiment Insight dan Strategy Agent.
