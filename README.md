@@ -8,6 +8,8 @@ Kategori usaha bersifat **dinamis dan dapat dikonfigurasi** (bukan hardcode di l
 
 Data Collector Agent mengambil data kompetitor sungguhan lewat sebuah **MCP server** yang membungkus Google Maps Places API; Sentiment & Strategy Agent memakai LLM sungguhan lewat OpenRouter. `GOOGLE_MAPS_API_KEY` dan `OPENROUTER_API_KEY` **wajib** diisi sebelum aplikasi bisa start.
 
+**Video presentasi & demo:** https://youtu.be/67yP7LDmujo
+
 ## Cara Menjalankan
 
 Butuh Python **3.10+** dan dua API key (lihat [Konfigurasi Wajib](#konfigurasi-wajib-api-key)).
