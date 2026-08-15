@@ -294,8 +294,13 @@ input[type="range"] {
   transition: background .2s, color .2s;
 }
 
-.agent-node__name { font-weight: 700; font-size: 14px; }
-.agent-node__desc { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; }
+.agent-node__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-node__name { font-weight: 700; font-size: 14px; overflow-wrap: break-word; }
+.agent-node__desc { font-size: 11.5px; color: var(--text-muted); margin-top: 1px; overflow-wrap: break-word; }
 
 .agent-node__status {
   display: flex;

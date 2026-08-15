@@ -31,6 +31,7 @@ class KategoriUsaha(str, Enum):
     minimarket = "minimarket"
     gym = "gym"
     toko_fashion = "toko fashion"
+    software_developer = "software developer"
 
 
 class AnalisisRequest(BaseModel):
