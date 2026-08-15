@@ -304,8 +304,9 @@ input[type="range"] {
 
 .agent-node__status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   margin-top: 9px;
 }
 
@@ -473,14 +474,26 @@ input[type="range"] {
 .hitl-preview-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-size: 12.5px;
-  padding: 6px 0;
+  padding: 6px 4px;
   border-bottom: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s;
 }
+.hitl-preview-row:hover { background: var(--surface-soft); }
 .hitl-preview-row:last-child { border-bottom: none; }
+.hitl-preview-row__check { accent-color: var(--green); width: 15px; height: 15px; flex-shrink: 0; cursor: pointer; }
 .hitl-preview-row__name { font-weight: 700; flex: 1; }
 .hitl-preview-row__stat { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
+
+.hitl-preview-row:has(.hitl-preview-row__check:not(:checked)) {
+  opacity: .45;
+}
+.hitl-preview-row:has(.hitl-preview-row__check:not(:checked)) .hitl-preview-row__name {
+  text-decoration: line-through;
+}
 
 .hitl-panel__actions {
   display: flex;

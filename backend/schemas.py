@@ -224,4 +224,9 @@ class LaporanAkhir(BaseModel):
 
 class KeputusanHITL(BaseModel):
     disetujui: bool = Field(..., description="True = lanjut ke Strategy Agent, False = batalkan pipeline")
+    kompetitor_dikecualikan: List[str] = Field(
+        default_factory=list,
+        description="Nama kompetitor yang dipilih manusia untuk DIKELUARKAN dari pertimbangan Strategy Agent "
+        "(mis. hasil pencarian yang tidak relevan/salah kategori) — sisanya tetap dipakai.",
+    )
     catatan: Optional[str] = Field(None, max_length=200)

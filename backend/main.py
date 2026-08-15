@@ -99,7 +99,7 @@ def keputusan_hitl(run_id: str, keputusan: KeputusanHITL):
     Strategy Agent (lihat "HITL BOUNDARY" di backend/orchestrator.py). Membangunkan
     generator SSE yang sedang menunggu (threading.Event) di backend/approval_store.py.
     """
-    ok = approval_store.putuskan(run_id, keputusan.disetujui)
+    ok = approval_store.putuskan(run_id, keputusan)
     if not ok:
         raise HTTPException(status_code=404, detail="run_id tidak ditemukan atau sudah kedaluwarsa/selesai")
     return {"status": "ok"}

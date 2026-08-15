@@ -162,10 +162,10 @@ $(function () {
       currentRunId = data.run_id;
       appendLog("handoff", null, `<b>Menunggu persetujuan manusia</b> sebelum lanjut ke Strategy Agent (batas ${data.timeout_detik}s).`);
       $("#monitor-subtitle").text("Pipeline dijeda — menunggu keputusan Anda.");
-      renderHitlPreview(data.preview);
+      $("#hitl-reject-btn").prop("disabled", false);
+      renderHitlPreview(data.preview); // juga menentukan status disabled tombol Setujui
       $("#hitl-panel-desc").text(data.pesan);
       $("#hitl-panel").prop("hidden", false).hide().fadeIn(200);
-      $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", false);
       $("html, body").animate({ scrollTop: $("#hitl-panel").offset().top - 20 }, 400);
     });
 
@@ -212,27 +212,52 @@ $(function () {
 
   // ---------------------------------------------------------------- human-in-the-loop
 
+  // Pengguna bisa uncheck kompetitor yang dianggap tidak relevan/salah (mis. hasil
+  // pencarian yang salah kategori) supaya TIDAK ikut dipertimbangkan Strategy Agent.
   function renderHitlPreview(preview) {
     const $box = $("#hitl-panel-preview").empty();
     (preview.contoh_insight_kompetitor || []).forEach((k) => {
-      $box.append(`
-        <div class="hitl-preview-row">
-          <span class="hitl-preview-row__name">${k.nama}</span>
+      const $row = $(`
+        <label class="hitl-preview-row">
+          <input type="checkbox" class="hitl-preview-row__check" checked>
+          <span class="hitl-preview-row__name"></span>
           <span class="hitl-preview-row__stat"><i class="fa-solid fa-thumbs-up" style="color:var(--green)"></i> ${k.persentase_positif}%</span>
           <span class="hitl-preview-row__stat"><i class="fa-solid fa-thumbs-down" style="color:var(--red)"></i> ${k.persentase_negatif}%</span>
-        </div>
+        </label>
       `);
+      $row.find(".hitl-preview-row__check").data("nama", k.nama);
+      $row.find(".hitl-preview-row__name").text(k.nama);
+      $box.append($row);
     });
+    updateHitlSelectionSummary();
+  }
+
+  $(document).on("change", ".hitl-preview-row__check", updateHitlSelectionSummary);
+
+  function updateHitlSelectionSummary() {
+    const $semua = $(".hitl-preview-row__check");
+    const total = $semua.length;
+    const dipilih = $semua.filter(":checked").length;
+    $("#hitl-approve-btn").html(
+      `<i class="fa-solid fa-check"></i> Setujui &amp; Lanjutkan (${dipilih}/${total} kompetitor)`
+    );
+    $("#hitl-approve-btn").prop("disabled", dipilih === 0);
   }
 
   function kirimKeputusanHitl(disetujui) {
     if (!currentRunId) return;
+    const kompetitorDikecualikan = [];
+    if (disetujui) {
+      $(".hitl-preview-row__check").each(function () {
+        if (!$(this).is(":checked")) kompetitorDikecualikan.push($(this).data("nama"));
+      });
+    }
     $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", true);
     $.ajax({
       url: `/api/analisis/${currentRunId}/keputusan`,
       method: "POST",
       contentType: "application/json",
-      data: JSON.stringify({ disetujui }),
+      data: JSON.stringify({ disetujui, kompetitor_dikecualikan: kompetitorDikecualikan }),
     }).fail(() => {
       appendLog("error", null, "Gagal mengirim keputusan ke server. Coba lagi.");
       $("#hitl-approve-btn, #hitl-reject-btn").prop("disabled", false);

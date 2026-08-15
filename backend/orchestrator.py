@@ -27,6 +27,7 @@ import time
 from typing import Generator
 
 from .agents import DataCollectorAgent, SentimentInsightAgent, StrategyAgent
+from .agents.sentiment_insight import _agregasi_tema_pasar
 from .approval_store import approval_store
 from .config import settings
 from .schemas import AnalisisRequest, DataCollectorOutput, InsightOutput, LaporanAkhir
@@ -83,6 +84,32 @@ def _preview_insight(out: InsightOutput, max_items: int = 2) -> dict:
             else None
         ),
     }
+
+
+def _kecualikan_kompetitor(
+    data_out: DataCollectorOutput, insight_out: InsightOutput, dikecualikan: set[str]
+) -> tuple[DataCollectorOutput, InsightOutput]:
+    """Terapkan pilihan manusia di titik HITL: keluarkan kompetitor yang di-uncheck
+    (mis. hasil pencarian yang tidak relevan/salah kategori) dari data yang diteruskan
+    ke Strategy Agent DAN dari laporan akhir, supaya keduanya konsisten. Field agregat
+    (total ulasan, ringkasan tema pasar) dihitung ulang dari sisa kompetitor yang dipilih."""
+    kompetitor_baru = [k for k in data_out.kompetitor if k.nama not in dikecualikan]
+    insight_baru = [k for k in insight_out.insight_kompetitor if k.nama not in dikecualikan]
+
+    data_out = data_out.model_copy(
+        update={
+            "kompetitor": kompetitor_baru,
+            "total_ulasan_terkumpul": sum(len(k.ulasan) for k in kompetitor_baru),
+        }
+    )
+    insight_out = insight_out.model_copy(
+        update={
+            "insight_kompetitor": insight_baru,
+            "ringkasan_tema_pasar": _agregasi_tema_pasar(insight_baru),
+            "total_ulasan_dianalisis": sum(k.jumlah_ulasan_dianalisis for k in insight_baru),
+        }
+    )
+    return data_out, insight_out
 
 
 def run_pipeline_sse(req: AnalisisRequest) -> Generator[str, None, None]:
@@ -183,8 +210,10 @@ def run_pipeline_sse(req: AnalisisRequest) -> Generator[str, None, None]:
             {
                 "run_id": run_id,
                 "pesan": (
-                    "Tinjau data kompetitor & insight sentimen di bawah, lalu setujui untuk "
-                    "melanjutkan ke Strategy Agent (menyusun rekomendasi bisnis final), atau batalkan."
+                    "Tinjau data kompetitor & insight sentimen di bawah. Hilangkan centang pada "
+                    "kompetitor yang dianggap tidak relevan (mis. salah kategori/lokasi) supaya tidak "
+                    "ikut dipertimbangkan, lalu setujui untuk melanjutkan ke Strategy Agent (menyusun "
+                    "rekomendasi bisnis final), atau batalkan."
                 ),
                 "timeout_detik": settings.HITL_TIMEOUT_SECONDS,
                 "preview": _preview_insight(insight_out, max_items=len(insight_out.insight_kompetitor)),
@@ -198,11 +227,33 @@ def run_pipeline_sse(req: AnalisisRequest) -> Generator[str, None, None]:
                 {"alasan": f"Tidak ada keputusan manusia dalam {settings.HITL_TIMEOUT_SECONDS}s — pipeline dihentikan otomatis (guardrail timeout HITL)."},
             )
             return
-        if not keputusan:
+        if not keputusan.disetujui:
             yield _sse("dibatalkan", {"alasan": "Pengguna menolak melanjutkan ke Strategy Agent."})
             return
 
-        yield _sse("disetujui", {"pesan": "Disetujui manusia — melanjutkan ke Strategy Agent."})
+        # Manusia bisa mengeluarkan kompetitor yang dianggap tidak relevan/salah
+        # (mis. hasil pencarian yang salah kategori) sebelum data dipakai Strategy Agent.
+        dikecualikan = set(keputusan.kompetitor_dikecualikan)
+        if dikecualikan:
+            jumlah_sebelum = len(insight_out.insight_kompetitor)
+            data_out, insight_out = _kecualikan_kompetitor(data_out, insight_out, dikecualikan)
+            if not insight_out.insight_kompetitor:
+                yield _sse(
+                    "error",
+                    {"pesan": "Semua kompetitor dikeluarkan oleh pengguna — minimal 1 kompetitor harus dipertahankan agar Strategy Agent bisa jalan."},
+                )
+                return
+            yield _sse(
+                "disetujui",
+                {
+                    "pesan": (
+                        f"Disetujui manusia — {len(dikecualikan)} kompetitor dikeluarkan dari pertimbangan "
+                        f"({len(insight_out.insight_kompetitor)}/{jumlah_sebelum} dipertahankan). Melanjutkan ke Strategy Agent."
+                    )
+                },
+            )
+        else:
+            yield _sse("disetujui", {"pesan": "Disetujui manusia — melanjutkan ke Strategy Agent."})
         time.sleep(JEDA_DETIK)
         # ------------------------------------------------------------------- /HITL
 

@@ -20,6 +20,8 @@ import threading
 import uuid
 from typing import Optional
 
+from .schemas import KeputusanHITL
+
 
 class ApprovalStore:
     def __init__(self) -> None:
@@ -32,16 +34,16 @@ class ApprovalStore:
             self._entries[run_id] = {"event": threading.Event(), "keputusan": None}
         return run_id
 
-    def putuskan(self, run_id: str, disetujui: bool) -> bool:
+    def putuskan(self, run_id: str, keputusan: KeputusanHITL) -> bool:
         with self._lock:
             entry = self._entries.get(run_id)
             if entry is None:
                 return False
-            entry["keputusan"] = disetujui
+            entry["keputusan"] = keputusan
         entry["event"].set()
         return True
 
-    def tunggu(self, run_id: str, timeout: float) -> Optional[bool]:
+    def tunggu(self, run_id: str, timeout: float) -> Optional[KeputusanHITL]:
         """Blokir sampai ada keputusan atau timeout. Return None kalau timeout
         (dianggap sebagai penolakan otomatis oleh guardrail)."""
         with self._lock:
